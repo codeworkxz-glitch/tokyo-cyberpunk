@@ -32,19 +32,20 @@ from mathutils import Vector
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cyberpunk_city as cc  # noqa: E402  (classification shared with the Blender look)
+import roblox_textures as rt  # noqa: E402
 
-UV_METERS = 8.0  # one material tile per 8 m
+PAINT_RE = re.compile(r"Paint|Marking|Crosswalk", re.I)  # road markings keep their colours
 SEED = 2077
 CARRIER_NAME = "CP_TextureCarrier_Windows"
 CARRIER_SIZE = 10.0  # metres; Roblox side measures it to learn the stud scale
 
-KIND_TAG = {"building": "bld", "street": "street", "concrete": "concrete", "led": "led"}
+KIND_TAG = {"building": "bld", "street": "street", "concrete": "concrete", "led": "led", "paint": "paint"}
 MAT_TAG = {"Screen_Atlas": "screen", "SignV_Lit": "signlit", "SignH_Lit": "signlit",
            "SignV": "sign", "SignH": "sign"}
-GROUP_OF_TAG = {"bld": "Buildings", "street": "Streets", "concrete": "Props", "led": "NeonLED",
-                "screen": "Billboards", "sign": "Signs", "signlit": "Signs"}
-FLAT_COLORS = {"bld": (0.18, 0.18, 0.2), "street": (0.08, 0.08, 0.09),
-               "concrete": (0.45, 0.44, 0.42), "led": (0.0, 0.85, 1.0)}
+GROUP_OF_TAG = {"bld": "Buildings", "roof": "Buildings", "street": "Streets", "paint": "Streets",
+                "concrete": "Props", "led": "NeonLED", "screen": "Billboards", "sign": "Signs",
+                "signlit": "Signs"}
+TEXTURED_TAGS = ("bld", "roof", "street", "concrete", "led")
 
 
 def to_roblox(v):
@@ -63,7 +64,8 @@ def flatten_and_classify():
 
     lo, hi = cc.world_bounds(meshes)
     building_h = max(8.0, 0.15 * (hi.z - lo.z))
-    kinds = {o.name: cc.classify(o, 1.0, building_h) for o in meshes}
+    kinds = {o.name: "paint" if PAINT_RE.search(o.name) else cc.classify(o, 1.0, building_h)
+             for o in meshes}
 
     bpy.ops.object.select_all(action="SELECT")
     bpy.context.view_layer.objects.active = meshes[0]
@@ -101,8 +103,12 @@ def split_by_material(kinds):
     return tagged
 
 
-def box_uvs(obj):
-    """Replace UVs with world-space box projection (location is still unapplied)."""
+def box_uvs(obj, su, sv, anchor=None):
+    """Replace UVs with world-space box projection (location is still unapplied).
+
+    su/sv are metres per texture tile. With an anchor, the projection starts at
+    that point (used to line facade windows up with each building's corner/base).
+    """
     me = obj.data
     while me.uv_layers:
         me.uv_layers.remove(me.uv_layers[0])
@@ -110,31 +116,51 @@ def box_uvs(obj):
     bm = bmesh.new()
     bm.from_mesh(me)
     uv = bm.loops.layers.uv.active
-    loc = obj.location
+    origin = obj.location - (anchor if anchor is not None else Vector())
     for f in bm.faces:
         n = f.normal
         ax, ay, az = abs(n.x), abs(n.y), abs(n.z)
         for loop in f.loops:
-            p = loop.vert.co + loc
+            p = loop.vert.co + origin
             if az >= ax and az >= ay:
                 u, v = p.x, p.y
             elif ax >= ay:
                 u, v = p.y, p.z
             else:
                 u, v = p.x, p.z
-            loop[uv].uv = (u / UV_METERS, v / UV_METERS)
+            loop[uv].uv = (u / su, v / sv)
     bm.to_mesh(me)
     bm.free()
 
 
-def plain_material(tag, cache={}):
-    if tag not in cache:
-        m = bpy.data.materials.new(f"CP_{tag}")
-        m.diffuse_color = (*FLAT_COLORS[tag], 1.0)
+def split_roof(obj):
+    """Move upward/downward-facing faces of a building into a separate __roof object."""
+    me = obj.data
+    flat = [p.index for p in me.polygons if abs(p.normal.z) > 0.7]
+    if not flat or len(flat) == len(me.polygons):
+        return None
+    roof = obj.copy()
+    roof.data = me.copy()
+    bpy.context.scene.collection.objects.link(roof)
+    for target, keep_flat in ((obj, False), (roof, True)):
+        bm = bmesh.new()
+        bm.from_mesh(target.data)
+        bm.faces.ensure_lookup_table()
+        doomed = [f for f in bm.faces if (abs(f.normal.z) > 0.7) != keep_flat]
+        bmesh.ops.delete(bm, geom=doomed, context="FACES")
+        bm.to_mesh(target.data)
+        bm.free()
+    roof.name = roof.data.name = obj.name.replace("__bld", "__roof")
+    return roof
+
+
+def textured_material(key, img, cache={}):
+    if key not in cache:
+        m = bpy.data.materials.new(f"CP_{key}")
         g = cc.Graph(m)
-        g.finish(FLAT_COLORS[tag], 0.9)
-        cache[tag] = m
-    return cache[tag]
+        g.finish(g.image(img, g.new("ShaderNodeTexCoord").outputs["UV"]), 0.9)
+        cache[key] = m
+    return cache[key]
 
 
 def screen_panels(obj, rng):
@@ -332,15 +358,31 @@ def main():
     kinds = flatten_and_classify()
     pieces = split_by_material(kinds)
 
+    textures = rt.build_all(os.path.join(outdir, "textures"))
+    variants = [k for k in textures if k.startswith("facade_")]
+    for obj, origin, tag in list(pieces):
+        if tag == "bld":
+            roof = split_roof(obj)
+            if roof:
+                pieces.append((roof, origin, "roof"))
+
     groups = {}
     screens = {}
     counts = defaultdict(int)
     for obj, _origin, tag in pieces:
         counts[tag] += 1
-        if tag in FLAT_COLORS:
-            box_uvs(obj)
+        if tag in TEXTURED_TAGS:
+            surface = rt.SURFACE_METERS
+            if tag == "bld":
+                key = variants[sum(map(ord, obj.name)) % len(variants)]
+                lo = Vector([min(c[i] for c in obj.bound_box) for i in range(3)])
+                box_uvs(obj, *rt.FACADE_METERS, anchor=obj.location + lo)
+            else:
+                key = {"roof": "roof", "led": "led", "concrete": "concrete",
+                       "street": "asphalt" if "Street" in obj.name else "pavement"}[tag]
+                box_uvs(obj, surface, surface)
             obj.data.materials.clear()
-            obj.data.materials.append(plain_material(tag))
+            obj.data.materials.append(textured_material(key, textures[key]))
         elif tag == "screen":
             data = screen_panels(obj, rng)
             if data:

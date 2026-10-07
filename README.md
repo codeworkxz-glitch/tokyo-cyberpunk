@@ -6,7 +6,9 @@ Turns the `HEX_City_00_FULL_CITY.fbx` map into a neon cyberpunk city, for **Robl
 
 Files in `roblox/`:
 
-- `HEX_City_Cyberpunk_Roblox.fbx` – the map, split so each MeshPart has one material, with tiling UVs for Roblox materials (textures embedded)
+- `HEX_City_Cyberpunk_Roblox.fbx` – the map with **textures baked in**: concrete on props, concrete roofs, cyberpunk facades with window grids on buildings (3 colour variants), asphalt streets, pavement – textured as soon as you import it, no scripts needed
+
+  ![fbx as imported](docs/previews/roblox_fbx_textured.png)
 - `CyberpunkCity.rbxmx` – scripts that apply the look and animate it
 - `textures/` – the same textures as loose PNGs, in case the importer skips embedded ones
 
@@ -21,8 +23,7 @@ Steps:
 
 What the scripts do:
 
-- **Concrete everywhere** – props/building parts get Roblox's `Concrete` material, streets `Asphalt`, with dark varied colours
-- **Cyberpunk buildings** – glowing window grids on each facade, neon roof crowns (pulsing) and neon floor bands, one accent colour per building; facade LED strips become `Neon` with a chasing pulse
+- **Neon** – neon roof crowns (pulsing) and neon floor bands, one accent colour per building; facade LED strips become `Neon` with a chasing pulse
 - **Moving billboards** – every billboard gets a screen that scrolls its ad (curved screens scroll as one image), with scan line, flicker, glitch tearing and blackouts; screens far from the camera pause
 - **Signs** – ~18% of lit signs flicker like faulty neon
 - **Night lighting** – midnight, purple haze `Atmosphere`, `Bloom`, colour correction

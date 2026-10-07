@@ -11,7 +11,7 @@ return {
 	WindowImage = nil,
 
 	Lighting = true, -- night sky, haze, bloom, colour grading
-	Windows = true, -- glowing window grids on building faces
+	Windows = false, -- extra glowing window overlay (facades already have windows baked in)
 	NeonRings = true, -- neon floor bands and roof crowns around buildings
 
 	MaxRingFootprintMeters = 160, -- skip rings/windows on huge background blocks

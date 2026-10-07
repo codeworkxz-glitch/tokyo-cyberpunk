@@ -60,7 +60,7 @@ local function fxPart(size: Vector3, cf: CFrame, color: Color3?): Part
 end
 
 local function collect(root: Instance)
-	local byTag = { bld = {}, street = {}, concrete = {}, led = {}, screen = {}, sign = {}, signlit = {} }
+	local byTag = { bld = {}, roof = {}, street = {}, concrete = {}, paint = {}, led = {}, screen = {}, sign = {}, signlit = {} }
 	local carrier
 	for _, d in ipairs(root:GetDescendants()) do
 		if d:IsA("BasePart") then
@@ -131,12 +131,22 @@ local function setupLighting()
 end
 
 local function styleSurfaces(byTag)
-	for _, p in ipairs(byTag.bld) do
+	-- Parts imported with their baked texture (concrete, facades, asphalt) keep it.
+	local function untextured(list)
+		local out = {}
+		for _, p in ipairs(list) do
+			if not textureOf(p) then
+				table.insert(out, p)
+			end
+		end
+		return out
+	end
+	for _, p in ipairs(untextured(byTag.bld)) do
 		local r = Random.new(hash(p.Name))
 		p.Material = Enum.Material.Concrete
 		p.Color = Color3.fromHSV(r:NextNumber(), r:NextNumber(0.03, 0.12), r:NextNumber(0.16, 0.26))
 	end
-	for _, p in ipairs(byTag.street) do
+	for _, p in ipairs(untextured(byTag.street)) do
 		if string.find(p.Name, "Street") then
 			p.Material = Enum.Material.Asphalt
 			p.Color = Color3.fromRGB(28, 28, 32)
@@ -146,7 +156,7 @@ local function styleSurfaces(byTag)
 		end
 		p.Reflectance = 0.05 -- a hint of wet street
 	end
-	for _, p in ipairs(byTag.concrete) do
+	for _, p in ipairs(untextured(byTag.concrete)) do
 		local r = Random.new(hash(p.Name))
 		p.Material = Enum.Material.Concrete
 		p.Color = Color3.fromHSV(0.08, 0.04, r:NextNumber(0.36, 0.5))
