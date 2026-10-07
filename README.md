@@ -14,6 +14,11 @@ Files in `roblox/`:
 - `CyberpunkCity.rbxmx` – scripts: turn the neon/glow parts into `Neon`, put glowing animated overlays on every screen, hologram and sign (scrolling ads, scan lines, hologram flicker, glitches, faulty neon), blinking beacons, flying cars with light trails, and a blue-purple night (`Atmosphere`, `Bloom`, colour grading)
 - `textures/` – every texture as a loose PNG
 
+Preview (Blender approximation of the Roblox result):
+
+![street](docs/previews/roblox_preview_street.png)
+![skyline](docs/previews/roblox_preview_skyline.png)
+
 Steps:
 
 1. **File → Import 3D**, pick `roblox/HEX_City_Cyberpunk_Roblox.fbx` and import.
