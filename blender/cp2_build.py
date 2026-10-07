@@ -348,11 +348,17 @@ def move_preserved(C):
 
 
 def markers(C):
+    """4-stud origin cubes in both files + two 2-stud axis cubes in file A (+100 X, +100 Y) so the
+    Roblox setup can recover offset, rotation and scale of the import."""
+    F = L.Frame((0, 0, 0), (1, 0, 0), (0, 1, 0))
     for tag, col in (("A", C["map"]), ("B", C["bg"])):
         g = L.Geo()
-        F = L.Frame((0, 0, 0), (1, 0, 0), (0, 1, 0))
         L.box(g, F, -2, -2, -62, 2, 2, -58, "CON")
         L.flush(g, f"HEX_ALIGN_{tag}", col)
+    for tag, (x, y) in (("X", (100, 0)), ("Y", (0, 100))):
+        g = L.Geo()
+        L.box(g, F, x - 1, y - 1, -61, x + 1, y + 1, -59, "CON")
+        L.flush(g, f"HEX_AXIS_{tag}", C["map"])
 
 
 def blender_preview_lights(C):
@@ -389,6 +395,7 @@ def write_data(path):
            "-- HEX_ALIGN markers and corrects any offset / uniform scale automatically.",
            "return {",
            f"\tmarkerA = {lua_vec(rb((0, 0, -60)))}, markerB = {lua_vec(rb((0, 0, -60)))}, markerSize = 4,",
+           f"\taxisX = {lua_vec(rb((100, 0, -60)))}, axisY = {lua_vec(rb((0, 100, -60)))},",
            "\tscreens = {"]
     for s in L.SCREENS:
         panels = []

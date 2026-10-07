@@ -4,7 +4,7 @@ Overall: **PASS** (re-imported both FBX files into a clean Blender scene)
 
 | File | Size | Objects | Triangles | Bounds min | Bounds max |
 |---|---|---|---|---|---|
-| `HEX_Cyberpunk_City_A.fbx` | 12.8 MB (< 20 MB) | 3409 | 317410 | [-1500.0, -1500.0, -62.0] | [1500.0, 1500.0, 534.0] |
+| `HEX_Cyberpunk_City_A.fbx` | 12.8 MB (< 20 MB) | 3411 | 317434 | [-1500.0, -1500.0, -62.0] | [1500.0, 1500.0, 534.0] |
 | `HEX_Cyberpunk_City_B.fbx` | 12.97 MB (< 20 MB) | 2788 | 248296 | [-1420.0, -1496.4, -62.0] | [1499.4, 1482.0, 1789.1] |
 
 | Check | Result |
@@ -66,7 +66,7 @@ Overall: **PASS** (re-imported both FBX files into a clean Blender scene)
 | `AD_Tokyo2099` | 16 | 32 | A, B | AD_Tokyo2099.png |
 | `AD_VoltRunner` | 23 | 46 | A, B | AD_VoltRunner.png |
 | `AD_YumeOptics` | 25 | 50 | A, B | AD_YumeOptics.png |
-| `CP_ConcreteDark` | 222 | 22628 | A, B | T_ConcreteDark_Color.png, T_ConcreteDark_Metalness.png, T_ConcreteDark_Normal.png, T_ConcreteDark_Roughness.png |
+| `CP_ConcreteDark` | 224 | 22652 | A, B | T_ConcreteDark_Color.png, T_ConcreteDark_Metalness.png, T_ConcreteDark_Normal.png, T_ConcreteDark_Roughness.png |
 | `CP_GlassCurtain` | 167 | 4210 | A, B | T_GlassCurtain_Color.png, T_GlassCurtain_Metalness.png, T_GlassCurtain_Normal.png, T_GlassCurtain_Roughness.png |
 | `CP_GlassRibbon` | 70 | 328 | A, B | T_GlassRibbon_Color.png, T_GlassRibbon_Metalness.png, T_GlassRibbon_Normal.png, T_GlassRibbon_Roughness.png |
 | `CP_Louver` | 22 | 84 | B | T_Louver_Color.png, T_Louver_Metalness.png, T_Louver_Normal.png, T_Louver_Roughness.png |

@@ -117,7 +117,7 @@ def main():
     # playable areas empty: no new vertex inside the plaza rectangle below 60 studs
     intr = Counter()
     for o in allobj:
-        if o.type != "MESH" or o.name.startswith(PRESERVED) or o.name.startswith("HEX_ALIGN"):
+        if o.type != "MESH" or o.name.startswith(PRESERVED) or o.name.startswith(("HEX_ALIGN", "HEX_AXIS")):
             continue
         mw = o.matrix_world
         for v in o.data.vertices:

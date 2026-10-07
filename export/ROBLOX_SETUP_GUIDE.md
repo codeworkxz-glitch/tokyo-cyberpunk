@@ -6,14 +6,14 @@ Everything here is generated from the actual export (`blender/cp2_guide.py`). Pe
 
 | File | Size | Contents |
 |---|---|---|
-| `HEX_Cyberpunk_City_A.fbx` | 12.8 MB | the original basketball park (unchanged, included only here), all foreground buildings around the plaza, the 4 corner landmarks, side-street ad gates / skybridges, their screens and props — 3409 meshes, 317,410 triangles |
+| `HEX_Cyberpunk_City_A.fbx` | 12.8 MB | the original basketball park (unchanged, included only here), all foreground buildings around the plaza, the 4 corner landmarks, side-street ad gates / skybridges, their screens and props — 3411 meshes, 317,434 triangles |
 | `HEX_Cyberpunk_City_B.fbx` | 12.97 MB | midground towers, skyline towers, 12 megatowers, their screens and props — 2788 meshes, 248,296 triangles |
 | `textures/` | 17.0 MB | every PNG the materials use (listed below) |
 | `roblox/CyberpunkCityV2.rbxmx` | | setup / animation scripts + `CityData` (screen panels, lights, alignment) |
 | `../output/HEX_Cyberpunk_City.blend` | | editable Blender project (collections `A_*` = file A, `B_*` = file B) |
 | `../output/HEX_City_00_original_backup.blend` | | backup of the untouched original scene |
 
-Both FBX files use the **same world origin, units and axes as `HEX_City_00_FULL_CITY.fbx`** (Blender default FBX export: Y-up, 1 unit = 1 stud, no global scale), so import them with the same settings you used for the original map. Each file contains a 4-stud cube at (0, −60, 0) (`HEX_ALIGN_A` / `HEX_ALIGN_B`, 60 studs under the plaza) used to line the two imports up.
+Both FBX files use the **same world origin, units and axes as `HEX_City_00_FULL_CITY.fbx`** (Blender default FBX export: Y-up, 1 unit = 1 stud, no global scale), so import them with the same settings you used for the original map. Each file contains a 4-stud cube at (0, −60, 0) (`HEX_ALIGN_A` / `HEX_ALIGN_B`, 60 studs under the plaza) used to line the two imports up; file A also has two 2-stud cubes 100 studs along +X and +Y (`HEX_AXIS_X` / `HEX_AXIS_Y`) so the setup script can detect an offset, rotation or rescale applied by the importer. The script hides all four; you can delete them once the setup has run.
 
 ## 2. Import steps
 
@@ -23,7 +23,7 @@ Both FBX files use the **same world origin, units and axes as `HEX_City_00_FULL_
 4. In the Importer, check that materials show textures. If a texture is missing, upload the PNG from `textures/` (Asset Manager → Bulk Import) and assign it (section 4), or fill the ids into `CyberpunkConfig.SurfaceTextures` and let the setup script apply them.
 5. Right-click **Workspace → Insert from File…** → `roblox/CyberpunkCityV2.rbxmx`.
 6. Paste into the **command bar** and press Enter: `require(workspace.CyberpunkCityV2.CyberpunkSetup).run()`  
-   This (a) moves model B so its marker sits exactly on A's marker and warns if either import was rescaled, (b) turns every `__NEON_*` / `__WIN_*` / `__SHOP_LIT` part into **Neon** with its colour, (c) builds a self-lit SurfaceGui on every screen, (d) places the court flood SpotLights, shop/beacon PointLights and screen SurfaceLights, (e) sets the night Lighting (Future, Atmosphere, Bloom, ColorCorrection). Running it from the command bar bakes the result into the place; otherwise `RunSetup` does it at game start.
+   This (a) moves model B so its marker sits exactly on A's marker, warns if either import was rescaled or rotated, and maps all screen / light positions through the measured transform, (b) turns every `__NEON_*` / `__WIN_*` / `__SHOP_LIT` part into **Neon** with its colour, (c) builds a self-lit SurfaceGui on every screen, (d) places the court flood SpotLights, shop/beacon PointLights and screen SurfaceLights, (e) sets the night Lighting (Future, Atmosphere, Bloom, ColorCorrection). Running it from the command bar bakes the result into the place; otherwise `RunSetup` does it at game start.
 7. Press **Play** to see the client animation (scan lines, rotating billboards, blinking beacons, a few buzzing neon tubes).
 
 The setup script reports how many parts got Neon, kept textures, or fell back to plain Roblox materials, so you can see at a glance whether textures came through.
@@ -31,7 +31,7 @@ The setup script reports how many parts got Neon, kept textures, or fell back to
 ## 3. How the scene is organised
 
 * **One material per object.** Every Blender object (= one Roblox MeshPart) has exactly one material; its name ends with `__<KEY>` (e.g. `A_N_05_Zakkyo__GLS`, `B_Mega_03__NEON_MAG`). The largest single mesh is 6,600 triangles (anything over 18,000 would be split into `__KEY_2`, staying under Roblox's per-mesh limit).
-* **Naming:** `A_<row>_<lot>_<type>` foreground (row N/S/E/W = plaza side), `A_Corner_NE/NW/SE/SW` landmarks, `A_Gate_*` side-street gates, `B_<row>_<lot>` midground, `B_Sky_<sector>` skyline (merged per 400-stud sector), `B_Mega_<n>` megatowers, `*_P<n>_<PROP>` instanced rooftop machinery, `*_V<n>_VEND_*` vending machines, `SCR_*` screens, `HEX_ALIGN_*` markers.
+* **Naming:** `A_<row>_<lot>_<type>` foreground (row N/S/E/W = plaza side), `A_Corner_NE/NW/SE/SW` landmarks, `A_Gate_*` side-street gates, `B_<row>_<lot>` midground, `B_Sky_<sector>` skyline (merged per 400-stud sector), `B_Mega_<n>` megatowers, `*_P<n>_<PROP>` instanced rooftop machinery, `*_V<n>_VEND_*` vending machines, `SCR_*` screens, `HEX_ALIGN_*` / `HEX_AXIS_*` alignment markers.
 * **Instancing:** rooftop machinery uses 11 shared meshes (HVAC, cooling towers, tanks, vents, dishes, stacks, fan boxes, generators, vending machines) placed hundreds of times; the FBX stores each mesh once.
 * **Three levels of detail:** foreground = full facades, storefronts, signage, screens, machinery; midground = simplified facades with lit windows, crowns, rooftop/facade screens; skyline = merged silhouette towers (10 shape families), lit-window bands, crown neon, beacons; megatowers 900–1,700 studs tall.
 * **Scale:** upper floors are 12 studs, ground-floor shops 16 studs with 10-stud glazing, doors ~8 studs, railings 3.4 studs — sized for R15 avatars. Nothing was globally scaled; the preserved park is geometrically identical to the original, every vertex within 0.01 studs (see VERIFICATION.md).
@@ -45,7 +45,7 @@ All maps are 1024 × 1024 PNG (Roblox stores uploaded images at most 1024 px, so
 | `__GLS` | `CP_GlassCurtain` | Color: `T_GlassCurtain_Color.png` (99 KB)<br>Normal: `T_GlassCurtain_Normal.png` (6 KB)<br>Roughness: `T_GlassCurtain_Roughness.png` (94 KB)<br>Metalness: `T_GlassCurtain_Metalness.png` (2 KB) | 32 x 48 | 99 / 68 | 4,210 | curtain-wall glazing, mullion grid matches 5.33-stud bays / 12-stud floors |
 | `__RIB` | `CP_GlassRibbon` | Color: `T_GlassRibbon_Color.png` (112 KB)<br>Normal: `T_GlassRibbon_Normal.png` (5 KB)<br>Roughness: `T_GlassRibbon_Roughness.png` (47 KB)<br>Metalness: `T_GlassRibbon_Metalness.png` (2 KB) | 32 x 24 | 47 / 23 | 328 | ribbon windows with concrete spandrels |
 | `__PNL` | `CP_PanelMetal` | Color: `T_PanelMetal_Color.png` (169 KB)<br>Normal: `T_PanelMetal_Normal.png` (63 KB)<br>Roughness: `T_PanelMetal_Roughness.png` (135 KB)<br>Metalness: `T_PanelMetal_Metalness.png` (2 KB) | 24 x 24 | 172 / 152 | 20,692 | gunmetal cladding, fascias, screen backs, recess linings |
-| `__CON` | `CP_ConcreteDark` | Color: `T_ConcreteDark_Color.png` (399 KB)<br>Normal: `T_ConcreteDark_Normal.png` (496 KB)<br>Roughness: `T_ConcreteDark_Roughness.png` (178 KB)<br>Metalness: `T_ConcreteDark_Metalness.png` (1 KB) | 32 x 32 | 110 / 112 | 22,628 | board-formed concrete: party walls, pilasters, slabs, parapets |
+| `__CON` | `CP_ConcreteDark` | Color: `T_ConcreteDark_Color.png` (399 KB)<br>Normal: `T_ConcreteDark_Normal.png` (496 KB)<br>Roughness: `T_ConcreteDark_Roughness.png` (178 KB)<br>Metalness: `T_ConcreteDark_Metalness.png` (1 KB) | 32 x 32 | 112 / 112 | 22,652 | board-formed concrete: party walls, pilasters, slabs, parapets |
 | `__TEC` | `CP_TechPanel` | Color: `T_TechPanel_Color.png` (236 KB)<br>Normal: `T_TechPanel_Normal.png` (74 KB)<br>Roughness: `T_TechPanel_Roughness.png` (165 KB)<br>Metalness: `T_TechPanel_Metalness.png` (5 KB) | 16 x 16 | 64 / 85 | 5,776 | sci-fi panelling, crown blocks, balustrades |
 | `__MEC` | `CP_Mechanical` | Color: `T_Mechanical_Color.png` (324 KB)<br>Normal: `T_Mechanical_Normal.png` (17 KB)<br>Roughness: `T_Mechanical_Roughness.png` (169 KB)<br>Metalness: `T_Mechanical_Metalness.png` (13 KB) | 8 x 8 | 1212 / 674 | 114,802 | HVAC, ducts, vents, cooling towers, generators, AC units |
 | `__ROF` | `CP_RoofDeck` | Color: `T_RoofDeck_Color.png` (319 KB)<br>Normal: `T_RoofDeck_Normal.png` (281 KB)<br>Roughness: `T_RoofDeck_Roughness.png` (6 KB)<br>Metalness: `T_RoofDeck_Metalness.png` (1 KB) | 32 x 32 | 109 / 198 | 8,328 | roof membranes |
@@ -154,7 +154,7 @@ Formats: W 2:1 facade / rooftop billboards, X 4:1 banners / tickers, P 8:3 curve
 
 ## 9. Performance notes
 
-* FBX size is not runtime cost. Runtime totals: 6,197 MeshParts, 565,706 triangles, 10 PBR texture sets + 45 ad images + 2 sign atlases.
+* FBX size is not runtime cost. Runtime totals: 6,199 MeshParts, 565,730 triangles, 10 PBR texture sets + 45 ad images + 2 sign atlases.
 * File B (midground/skyline) is unreachable: the setup turns off its collisions (`CollideFileB = false`). For StreamingEnabled places, set model B's `ModelStreamingMode = Persistent` so the skyline never pops out, and keep `RenderFidelity = Automatic` on its MeshParts.
 * Small details (neon, windows, signs, screens, small props) have CanCollide / CanQuery / CastShadow off.
 * Instanced props share one mesh asset each, so Roblox can batch them.

@@ -2,7 +2,7 @@
  "files": {
   "A": {
    "path": "export/HEX_Cyberpunk_City_A.fbx",
-   "bytes": 12796764,
+   "bytes": 12801820,
    "MB": 12.8,
    "under_20MB": true
   },
@@ -56,11 +56,11 @@
   "missing_texture_files": []
  },
  "triangles": {
-  "A": 317410,
+  "A": 317434,
   "B": 248296
  },
  "objects": {
-  "A": 3409,
+  "A": 3411,
   "B": 2788
  },
  "materials": {
@@ -532,8 +532,8 @@
    ]
   },
   "CP_ConcreteDark": {
-   "objects": 222,
-   "tris": 22628,
+   "objects": 224,
+   "tris": 22652,
    "textures": [
     "T_ConcreteDark_Color.png",
     "T_ConcreteDark_Metalness.png",

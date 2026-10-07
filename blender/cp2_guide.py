@@ -82,7 +82,9 @@ def main():
     w("")
     w("Both FBX files use the **same world origin, units and axes as `HEX_City_00_FULL_CITY.fbx`** "
       "(Blender default FBX export: Y-up, 1 unit = 1 stud, no global scale), so import them with the same settings you used for the original map. "
-      "Each file contains a 4-stud cube at (0, −60, 0) (`HEX_ALIGN_A` / `HEX_ALIGN_B`, 60 studs under the plaza) used to line the two imports up.")
+      "Each file contains a 4-stud cube at (0, −60, 0) (`HEX_ALIGN_A` / `HEX_ALIGN_B`, 60 studs under the plaza) used to line the two imports up; "
+      "file A also has two 2-stud cubes 100 studs along +X and +Y (`HEX_AXIS_X` / `HEX_AXIS_Y`) so the setup script can detect an offset, rotation or rescale applied by the importer. "
+      "The script hides all four; you can delete them once the setup has run.")
     w("")
     w("## 2. Import steps")
     w("")
@@ -94,7 +96,7 @@ def main():
       "and assign it (section 4), or fill the ids into `CyberpunkConfig.SurfaceTextures` and let the setup script apply them.")
     w("5. Right-click **Workspace → Insert from File…** → `roblox/CyberpunkCityV2.rbxmx`.")
     w("6. Paste into the **command bar** and press Enter: `require(workspace.CyberpunkCityV2.CyberpunkSetup).run()`  \n"
-      "   This (a) moves model B so its marker sits exactly on A's marker and warns if either import was rescaled, "
+      "   This (a) moves model B so its marker sits exactly on A's marker, warns if either import was rescaled or rotated, and maps all screen / light positions through the measured transform, "
       "(b) turns every `__NEON_*` / `__WIN_*` / `__SHOP_LIT` part into **Neon** with its colour, "
       "(c) builds a self-lit SurfaceGui on every screen, (d) places the court flood SpotLights, shop/beacon PointLights and screen SurfaceLights, "
       "(e) sets the night Lighting (Future, Atmosphere, Bloom, ColorCorrection). Running it from the command bar bakes the result into the place; "
@@ -109,7 +111,7 @@ def main():
       "(e.g. `A_N_05_Zakkyo__GLS`, `B_Mega_03__NEON_MAG`). The largest single mesh is 6,600 triangles (anything over 18,000 would be split into `__KEY_2`, staying under Roblox's per-mesh limit).")
     w("* **Naming:** `A_<row>_<lot>_<type>` foreground (row N/S/E/W = plaza side), `A_Corner_NE/NW/SE/SW` landmarks, `A_Gate_*` side-street gates, "
       "`B_<row>_<lot>` midground, `B_Sky_<sector>` skyline (merged per 400-stud sector), `B_Mega_<n>` megatowers, "
-      "`*_P<n>_<PROP>` instanced rooftop machinery, `*_V<n>_VEND_*` vending machines, `SCR_*` screens, `HEX_ALIGN_*` markers.")
+      "`*_P<n>_<PROP>` instanced rooftop machinery, `*_V<n>_VEND_*` vending machines, `SCR_*` screens, `HEX_ALIGN_*` / `HEX_AXIS_*` alignment markers.")
     w("* **Instancing:** rooftop machinery uses 11 shared meshes (HVAC, cooling towers, tanks, vents, dishes, stacks, fan boxes, generators, vending machines) "
       "placed hundreds of times; the FBX stores each mesh once.")
     w("* **Three levels of detail:** foreground = full facades, storefronts, signage, screens, machinery; midground = simplified facades with lit windows, crowns, rooftop/facade screens; "

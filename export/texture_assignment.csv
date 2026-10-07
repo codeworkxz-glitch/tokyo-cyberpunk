@@ -2991,6 +2991,8 @@ A,City_Street_04,HEX_Palette,HEX_Palette,palette.png,original map material (unch
 A,City_Street_05,HEX_Palette,HEX_Palette,palette.png,original map material (unchanged),10,
 A,City_Street_06,HEX_Palette,HEX_Palette,palette.png,original map material (unchanged),10,
 A,HEX_ALIGN_A__CON,CP_ConcreteDark,CON,T_ConcreteDark_Color.png;T_ConcreteDark_Normal.png;T_ConcreteDark_Roughness.png;T_ConcreteDark_Metalness.png,SurfaceAppearance,12,
+A,HEX_AXIS_X__CON,CP_ConcreteDark,CON,T_ConcreteDark_Color.png;T_ConcreteDark_Normal.png;T_ConcreteDark_Roughness.png;T_ConcreteDark_Metalness.png,SurfaceAppearance,12,
+A,HEX_AXIS_Y__CON,CP_ConcreteDark,CON,T_ConcreteDark_Color.png;T_ConcreteDark_Normal.png;T_ConcreteDark_Roughness.png;T_ConcreteDark_Metalness.png,SurfaceAppearance,12,
 A,LightMast_Plaza_01,HEX_Palette,HEX_Palette,palette.png,original map material (unchanged),140,
 A,LightMast_Plaza_02,HEX_Palette,HEX_Palette,palette.png,original map material (unchanged),140,
 A,LightMast_Plaza_03,HEX_Palette,HEX_Palette,palette.png,original map material (unchanged),140,

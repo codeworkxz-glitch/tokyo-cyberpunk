@@ -3,6 +3,7 @@
 -- HEX_ALIGN markers and corrects any offset / uniform scale automatically.
 return {
 	markerA = {0,-60,0}, markerB = {0,-60,0}, markerSize = 4,
+	axisX = {100,-60,0}, axisY = {0,-60,-100},
 	screens = {
 		["SCR_A_E_01_Zakkyo_01"] = {ad="AD_SushiSpeed", kind="stack", layer=0, panels={{c={540.4,22.5,-372.134},n={-1,-0,0},r={0,0,1},w=10,h=5,u0=0,u1=1}}},
 		["SCR_A_E_01_Zakkyo_02"] = {ad="AD_MegaSale", kind="stack", layer=0, panels={{c={540.4,31,-372.134},n={-1,-0,0},r={0,0,1},w=10,h=5,u0=0,u1=1}}},
