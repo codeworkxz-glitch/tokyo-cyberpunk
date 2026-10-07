@@ -4,26 +4,29 @@ return {
 	-- Model/folder that holds the imported city. nil = search all of Workspace.
 	CityRoot = nil,
 
-	-- Roblox stores uploaded textures at most 1024x1024; billboard atlas cells use this.
+	-- Roblox stores uploaded textures at most 1024x1024; atlas cells use this.
 	AtlasPixels = 1024,
 
-	-- Window texture asset. nil = read it from the imported CP_TextureCarrier_Windows part.
-	WindowImage = nil,
+	Lighting = true, -- night sky, blue-purple haze, bloom, colour grading
+	WetStreetReflectance = 0.15,
 
-	Lighting = true, -- night sky, haze, bloom, colour grading
-	Windows = false, -- extra glowing window overlay (facades already have windows baked in)
-	NeonRings = true, -- neon floor bands and roof crowns around buildings
+	-- Lit windows (Neon panes on the facades)
+	WindowWarm = Color3.fromRGB(255, 205, 150),
+	WindowGlowTransparency = 0.2,
 
-	MaxRingFootprintMeters = 160, -- skip rings/windows on huge background blocks
-	BandSpacingMeters = { 14, 36 },
-	BandChance = 0.7, -- share of buildings that get floor bands (all get a crown)
-	NeonThicknessMeters = 0.35,
-
+	-- Glowing overlays on screens, holograms and signs
 	ScreenPixelsPerMeter = 10,
 	ScreenBrightness = 2.5,
-	AnimateDistanceStuds = 2500, -- billboards farther than this from the camera pause
+	HoloBrightness = 3,
+	HoloTransparency = 0.15,
+	SignBrightness = 1.8,
+	FaultySignChance = 0.15,
+	AnimateDistanceStuds = 2500, -- screens farther than this from the camera pause
 
-	FaultySignChance = 0.18,
+	-- Flying cars with light trails (client side)
+	FlyingCars = 28,
+	FlyingCarSpeed = { 25, 45 }, -- metres per second
+	FlyingCarAltitude = { 18, 80 }, -- metres above the lowest building base
 
 	Accents = {
 		Color3.fromRGB(0, 217, 255), -- cyan

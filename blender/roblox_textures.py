@@ -14,11 +14,15 @@ N = 1024
 FACADE_METERS = (8.0, 7.2)
 SURFACE_METERS = 8.0
 
+# first colour = the neon line accent, the rest = lit interiors
 FACADE_VARIANTS = {
-    "warm": [(1.0, 0.78, 0.45), (1.0, 0.9, 0.7), (1.0, 0.65, 0.3)],
-    "cyan": [(0.55, 0.9, 1.0), (0.2, 0.85, 1.0), (1.0, 0.85, 0.6)],
-    "pink": [(1.0, 0.4, 0.8), (0.75, 0.5, 1.0), (1.0, 0.85, 0.6)],
+    "cyan": [(0.0, 0.85, 1.0), (0.55, 0.9, 1.0), (1.0, 0.85, 0.6)],
+    "pink": [(1.0, 0.1, 0.6), (1.0, 0.45, 0.8), (0.75, 0.5, 1.0)],
+    "purple": [(0.6, 0.2, 1.0), (0.7, 0.55, 1.0), (0.4, 0.9, 1.0)],
+    "amber": [(1.0, 0.5, 0.05), (1.0, 0.78, 0.45), (1.0, 0.9, 0.7)],
 }
+ACCENTS = [(0.0, 0.85, 1.0), (1.0, 0.05, 0.55), (0.55, 0.1, 1.0), (1.0, 0.45, 0.02),
+           (0.2, 1.0, 0.35), (1.0, 0.08, 0.1)]
 
 
 def spectral(rng, beta, aniso=(1.0, 1.0), n=N):
@@ -78,38 +82,41 @@ def asphalt(rng):
     return to_rgba(np.clip(v, 0, 1), (1.0, 1.0, 1.05))
 
 
-def facade(rng, palette, lit_chance=0.45):
-    img = to_rgba(concrete_value(rng, tone=0.32, seams=False), (0.95, 0.95, 1.0))
+def facade(rng, palette, lit_chance=0.0):
+    """Futuristic facade: dark metal/concrete spandrels, continuous strip windows,
+    thin neon lines under some floors, a few lit interiors per floor."""
+    v = concrete_value(rng, tone=0.2, seams=False)
+    img = to_rgba(v, (0.85, 0.9, 1.05))
     cols, rows = 4, 2
     cw, ch = N // cols, N // rows
+    accent = np.array(palette[0])
     for fy in range(rows):
         y0 = fy * ch
-        # floor slab: lighter band with a shadow line above it
-        slab = int(ch * 0.12)
-        img[y0:y0 + slab, :, :3] *= 1.25
-        img[y0 + slab:y0 + slab + 4, :, :3] *= 0.45
-        for fx in range(cols):
-            x0 = fx * cw
-            wx0, wx1 = x0 + int(cw * 0.14), x0 + int(cw * 0.86)
-            wy0, wy1 = y0 + int(ch * 0.2), y0 + int(ch * 0.9)
-            img[wy0:wy1, wx0:wx1, :3] = 0.07  # frame
-            gx0, gx1, gy0, gy1 = wx0 + 7, wx1 - 7, wy0 + 7, wy1 - 7
-            h = gy1 - gy0
-            t = np.linspace(0.0, 1.0, h)[:, None, None]  # 0 bottom .. 1 top
+        # vertical panel seams on the spandrel
+        for fx in range(cols + 1):
+            x = (fx * cw) % N
+            img[y0:y0 + ch, x:x + 3, :3] *= 0.5
+        gy0, gy1 = y0 + int(ch * 0.32), y0 + int(ch * 0.86)
+        h = gy1 - gy0
+        t = np.linspace(0.0, 1.0, h)[:, None, None]
+        # dark glass strip with a sky reflection gradient
+        diag = np.linspace(0.0, 1.0, N)[None, :, None]
+        refl = 0.03 + 0.07 * np.clip(t * 0.8 + diag * 0.3 - 0.25, 0, 1)
+        img[gy0:gy1, :, :3] = refl * np.array((0.5, 0.7, 1.0))
+        for fx in range(cols):  # lit bays
             if rng.random() < lit_chance:
                 col = np.array(palette[rng.integers(len(palette))])
-                glass = col * (0.75 + 0.25 * t)
-                glass = np.broadcast_to(glass, (h, gx1 - gx0, 3)).copy()
-                if rng.random() < 0.5:  # blinds
-                    glass[::14, :, :] *= 0.7
-            else:
-                diag = np.linspace(0.0, 1.0, gx1 - gx0)[None, :, None]
-                refl = 0.035 + 0.09 * np.clip(t * 0.7 + diag * 0.5 - 0.3, 0, 1)
-                glass = refl * np.array((0.6, 0.75, 1.0))
-                glass = np.broadcast_to(glass, (h, gx1 - gx0, 3)).copy()
-            img[gy0:gy1, gx0:gx1, :3] = glass
-            mid = (gx0 + gx1) // 2
-            img[gy0:gy1, mid - 2:mid + 2, :3] = 0.07  # mullion
+                x0, x1 = fx * cw + 4, (fx + 1) * cw - 4
+                img[gy0:gy1, x0:x1, :3] = col * (0.55 + 0.45 * t)
+                if rng.random() < 0.5:
+                    img[gy0:gy1:12, x0:x1, :3] *= 0.6  # blinds
+        for fx in range(cols * 2 + 1):  # mullions
+            x = min(fx * cw // 2, N - 3)
+            img[gy0:gy1, x:x + 3, :3] = 0.05
+        img[gy0 - 5:gy0, :, :3] = 0.04  # sill
+        img[gy1:gy1 + 5, :, :3] = 0.04  # head
+        if rng.random() < 0.6:  # neon line under the floor
+            img[gy0 - 12:gy0 - 8, :, :3] = accent
     return np.clip(img, 0, 1)
 
 
@@ -140,7 +147,16 @@ def build_all(outdir, seed=2077):
         "roof": save(concrete(rng, 0.38, (0.95, 0.95, 1.0), ground=True), "cp_roof", outdir),
         "asphalt": save(asphalt(rng), "cp_asphalt", outdir),
         "led": save(solid((0.0, 0.9, 1.0)), "cp_led", outdir),
+        "beacon": save(solid((1.0, 0.05, 0.05)), "cp_beacon", outdir),
+        "metal": save(to_rgba(concrete_value(rng, 0.16, seams=False), (0.9, 0.95, 1.05)), "cp_metal", outdir),
     }
+    for i, col in enumerate(ACCENTS):
+        imgs[f"neon{i + 1}"] = save(solid(col), f"cp_neon{i + 1}", outdir)
+    # window glow: 1 = warm white, 2..7 = soft accent tints
+    imgs["glow1"] = save(solid((1.0, 0.82, 0.6)), "cp_glow1", outdir)
+    for i, col in enumerate(ACCENTS):
+        soft = tuple(0.55 * c + 0.45 for c in col)
+        imgs[f"glow{i + 2}"] = save(solid(soft), f"cp_glow{i + 2}", outdir)
     for key, palette in FACADE_VARIANTS.items():
         imgs[f"facade_{key}"] = save(facade(rng, palette), f"cp_facade_{key}", outdir)
     return imgs

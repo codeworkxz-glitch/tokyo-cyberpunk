@@ -33,6 +33,7 @@ from mathutils import Vector
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cyberpunk_city as cc  # noqa: E402  (classification shared with the Blender look)
 import roblox_textures as rt  # noqa: E402
+import dress_city  # noqa: E402
 
 PAINT_RE = re.compile(r"Paint|Marking|Crosswalk", re.I)  # road markings keep their colours
 SEED = 2077
@@ -43,8 +44,13 @@ KIND_TAG = {"building": "bld", "street": "street", "concrete": "concrete", "led"
 MAT_TAG = {"Screen_Atlas": "screen", "SignV_Lit": "signlit", "SignH_Lit": "signlit",
            "SignV": "sign", "SignH": "sign"}
 GROUP_OF_TAG = {"bld": "Buildings", "roof": "Buildings", "street": "Streets", "paint": "Streets",
-                "concrete": "Props", "led": "NeonLED", "screen": "Billboards", "sign": "Signs",
-                "signlit": "Signs"}
+                "concrete": "Props", "rig": "Props", "led": "Neon", "neon": "Neon", "beacon": "Neon",
+                "glow": "Windows",
+                "screen": "Billboards", "holo": "Holograms", "sign": "Signs", "signlit": "Signs",
+                "blade": "Signs"}
+# pieces that get glowing SurfaceGui overlays in Roblox: tag -> (kind, scrolls)
+OVERLAY_TAGS = {"screen": ("screen", True), "holo": ("holo", True), "blade": ("sign", False),
+                "signlit": ("sign", False)}
 TEXTURED_TAGS = ("bld", "roof", "street", "concrete", "led")
 
 
@@ -163,7 +169,7 @@ def textured_material(key, img, cache={}):
     return cache[key]
 
 
-def screen_panels(obj, rng):
+def screen_panels(obj, rng, scroll=True):
     """Placement data for billboard screens.
 
     Faces are clustered into flat panels (same plane). Panels whose atlas rects
@@ -260,7 +266,7 @@ def screen_panels(obj, rng):
         mpu = ref["w"] / max(ref["rect"][2] - ref["rect"][0], 1e-6)
         mpv = ref["h"] / max(ref["rect"][3] - ref["rect"][1], 1e-6)
         out_groups.append({"uv": (u0, v0, uw, vh),
-                           "s": rng.uniform(0.08, 0.2) * rng.choice((-1, 1)),
+                           "s": rng.uniform(0.08, 0.2) * rng.choice((-1, 1)) if scroll else 0,
                            "ax": "X" if uw * mpu >= vh * mpv else "Y"})
         for p in members:
             r = p["rect"]
@@ -288,14 +294,15 @@ def write_billboard_data(path, screens):
         f"return {{ carrierMeters = {lua_num(CARRIER_SIZE)}, screens = {{",
     ]
     for name in sorted(screens):
-        obj, data = screens[name]
+        obj, data, kind = screens[name]
         size = tuple(abs(c) for c in to_roblox(obj.dimensions))
         groups = ", ".join(f"{{uv={lua_vec(g['uv'])},s={lua_num(g['s'])},ax=\"{g['ax']}\"}}"
                            for g in data["groups"])
         panels = ", ".join(
             f"{{g={p['g']},o={lua_vec(p['o'])},n={lua_vec(p['n'])},r={lua_vec(p['r'])},"
             f"w={lua_num(p['w'])},h={lua_num(p['h'])},f={lua_vec(p['f'])}}}" for p in data["panels"])
-        lines.append(f'\t["{name}"] = {{size={lua_vec(size)}, groups={{{groups}}}, panels={{{panels}}}}},')
+        lines.append(f'\t["{name}"] = {{kind="{kind}", size={lua_vec(size)}, groups={{{groups}}}, '
+                     f'panels={{{panels}}}}},')
     lines.append("}}")
     with open(path, "w") as f:
         f.write("\n".join(lines) + "\n")
@@ -360,6 +367,39 @@ def main():
 
     textures = rt.build_all(os.path.join(outdir, "textures"))
     variants = [k for k in textures if k.startswith("facade_")]
+
+    # Atlas cells (ads, vertical and horizontal signs) to reuse on new signage
+    pools = {"screen": set(), "sign_v": set(), "sign_h": set()}
+    mats = {}
+    probe = random.Random(0)
+    for obj, _origin, tag in pieces:
+        if tag not in ("screen", "signlit"):
+            continue
+        mat = obj.material_slots[0].material
+        base = cc.base_name(mat.name)
+        data = screen_panels(obj, probe)
+        for g in (data or {}).get("groups", []):
+            rect = tuple(round(x, 4) for x in g["uv"])
+            aspect = rect[2] / rect[3]
+            if base == "Screen_Atlas":
+                pools["screen"].add(rect)
+                mats["screen"] = mat
+            elif base == "SignV_Lit" and aspect < 0.6:
+                pools["sign_v"].add(rect)
+                mats["sign_v"] = mat
+            elif base == "SignH_Lit" and aspect > 1.5:
+                pools["sign_h"].add(rect)
+                mats["sign_h"] = mat
+    pools = {k: sorted(v) for k, v in pools.items()}
+    for key in ["metal", "beacon"] + [f"neon{i}" for i in range(1, 7)] + [f"glow{i}" for i in range(1, 8)]:
+        mats[key] = textured_material(key, textures[key])
+    print("[roblox] atlas cells:", {k: len(v) for k, v in pools.items()})
+
+    dresser = dress_city.Dresser(pools, mats)
+    for obj, origin, tag in list(pieces):
+        if tag == "bld":
+            pieces.extend(dresser.dress(obj, origin))
+
     for obj, origin, tag in list(pieces):
         if tag == "bld":
             roof = split_roof(obj)
@@ -383,10 +423,11 @@ def main():
                 box_uvs(obj, surface, surface)
             obj.data.materials.clear()
             obj.data.materials.append(textured_material(key, textures[key]))
-        elif tag == "screen":
-            data = screen_panels(obj, rng)
+        if tag in OVERLAY_TAGS:
+            kind, scrolls = OVERLAY_TAGS[tag]
+            data = screen_panels(obj, rng, scroll=scrolls)
             if data:
-                screens[obj.name] = (obj, data)
+                screens[obj.name] = (obj, data, kind)
         group = GROUP_OF_TAG[tag]
         if group not in groups:
             groups[group] = bpy.data.objects.new(group, None)

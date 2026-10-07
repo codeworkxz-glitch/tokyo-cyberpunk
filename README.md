@@ -6,29 +6,23 @@ Turns the `HEX_City_00_FULL_CITY.fbx` map into a neon cyberpunk city, for **Robl
 
 Files in `roblox/`:
 
-- `HEX_City_Cyberpunk_Roblox.fbx` – the map with **textures baked in**: concrete on props, concrete roofs, cyberpunk facades with window grids on buildings (3 colour variants), asphalt streets, pavement – textured as soon as you import it, no scripts needed
-
-  ![fbx as imported](docs/previews/roblox_fbx_textured.png)
-- `CyberpunkCity.rbxmx` – scripts that apply the look and animate it
-- `textures/` – the same textures as loose PNGs, in case the importer skips embedded ones
+- `HEX_City_Cyberpunk_Roblox.fbx` – the map, re-dressed and textured:
+  - dark futuristic facades (metal/concrete panels, strip windows), concrete roofs and props, asphalt streets
+  - lit window panes placed on the real walls (`__glow`), neon roof crowns / corner strips / floor bands (`__neon`)
+  - Shinjuku-style vertical kanji blade signs (`__blade`) and holographic billboards floating off facades and on rooftops (`__holo`), using the map's own ad/sign art
+  - rooftop antennas with beacons
+- `CyberpunkCity.rbxmx` – scripts: turn the neon/glow parts into `Neon`, put glowing animated overlays on every screen, hologram and sign (scrolling ads, scan lines, hologram flicker, glitches, faulty neon), blinking beacons, flying cars with light trails, and a blue-purple night (`Atmosphere`, `Bloom`, colour grading)
+- `textures/` – every texture as a loose PNG
 
 Steps:
 
-1. **File → Import 3D**, pick `roblox/HEX_City_Cyberpunk_Roblox.fbx`, import (keep default scale; parts are anchored by the script).
+1. **File → Import 3D**, pick `roblox/HEX_City_Cyberpunk_Roblox.fbx` and import.
 2. In the Explorer, right-click **Workspace → Insert from File…** and pick `roblox/CyberpunkCity.rbxmx`.
-3. Press **Play**. The setup script runs, and the client script animates everything.
-4. Optional – to see the look while editing (not only in Play), paste into the command bar:
+3. Paste into the **command bar** and press Enter, so the look shows while editing (and Lighting switches to Future):
    `require(workspace.CyberpunkCity.CyberpunkSetup).run()`
-   (this also switches Lighting to Future, which scripts can't do at runtime).
+4. Press **Play** for the animation (scrolling holograms, flying cars, flicker).
 
-What the scripts do:
-
-- **Neon** – neon roof crowns (pulsing) and neon floor bands, one accent colour per building; facade LED strips become `Neon` with a chasing pulse
-- **Moving billboards** – every billboard gets a screen that scrolls its ad (curved screens scroll as one image), with scan line, flicker, glitch tearing and blackouts; screens far from the camera pause
-- **Signs** – ~18% of lit signs flicker like faulty neon
-- **Night lighting** – midnight, purple haze `Atmosphere`, `Bloom`, colour correction
-
-Tweak `CyberpunkCity.CyberpunkConfig` (turn off windows/rings, colours, brightness, etc.).
+Tweak `CyberpunkCity.CyberpunkConfig` (brightness, window glow, flying cars, colours).
 Rebuild the Roblox files with:
 
 ```sh
