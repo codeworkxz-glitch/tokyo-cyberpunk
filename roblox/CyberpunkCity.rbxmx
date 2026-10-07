@@ -1,0 +1,1156 @@
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
+	<Item class="Folder" referent="RBX0">
+		<Properties><string name="Name">CyberpunkCity</string></Properties>
+		<Item class="ModuleScript" referent="RBX1">
+			<Properties>
+				<string name="Name">CyberpunkConfig</string>
+				<ProtectedString name="Source"><![CDATA[-- Settings for the cyberpunk city. Distances are in metres of the original map;
+-- the scripts convert them to studs by measuring the imported carrier part.
+return {
+	-- Model/folder that holds the imported city. nil = search all of Workspace.
+	CityRoot = nil,
+
+	-- Roblox stores uploaded textures at most 1024x1024; billboard atlas cells use this.
+	AtlasPixels = 1024,
+
+	-- Window texture asset. nil = read it from the imported CP_TextureCarrier_Windows part.
+	WindowImage = nil,
+
+	Lighting = true, -- night sky, haze, bloom, colour grading
+	Windows = true, -- glowing window grids on building faces
+	NeonRings = true, -- neon floor bands and roof crowns around buildings
+
+	MaxRingFootprintMeters = 160, -- skip rings/windows on huge background blocks
+	BandSpacingMeters = { 14, 36 },
+	BandChance = 0.7, -- share of buildings that get floor bands (all get a crown)
+	NeonThicknessMeters = 0.35,
+
+	ScreenPixelsPerMeter = 10,
+	ScreenBrightness = 2.5,
+	AnimateDistanceStuds = 2500, -- billboards farther than this from the camera pause
+
+	FaultySignChance = 0.18,
+
+	Accents = {
+		Color3.fromRGB(0, 217, 255), -- cyan
+		Color3.fromRGB(255, 13, 140), -- magenta
+		Color3.fromRGB(140, 26, 255), -- purple
+		Color3.fromRGB(255, 115, 5), -- amber
+		Color3.fromRGB(51, 255, 89), -- acid green
+		Color3.fromRGB(255, 20, 26), -- red
+	},
+}
+]]></ProtectedString>
+			</Properties>
+		</Item>
+		<Item class="ModuleScript" referent="RBX2">
+			<Properties>
+				<string name="Name">CyberpunkSetup</string>
+				<ProtectedString name="Source"><![CDATA[-- Turns the imported HEX City into a cyberpunk city. Safe to run more than once.
+--
+-- Runs automatically when the game starts (RunSetup). To bake the result into the
+-- place so you can see it while editing, paste this into the Studio command bar:
+--   require(workspace.CyberpunkCity.CyberpunkSetup).run()
+
+local Lighting = game:GetService("Lighting")
+local CollectionService = game:GetService("CollectionService")
+
+local Config = require(script.Parent.CyberpunkConfig)
+local Data = require(script.Parent.BillboardData)
+
+local CARRIER = "CP_TextureCarrier_Windows"
+local SIDE_FACES = { Enum.NormalId.Front, Enum.NormalId.Back, Enum.NormalId.Left, Enum.NormalId.Right }
+
+local Setup = {}
+
+local function hash(s: string): number
+	local h = 5381
+	for i = 1, #s do
+		h = (h * 33 + string.byte(s, i)) % 2147483647
+	end
+	return h
+end
+
+local function textureOf(part: BasePart): string?
+	if part:IsA("MeshPart") and part.TextureID ~= "" then
+		return part.TextureID
+	end
+	local sa = part:FindFirstChildOfClass("SurfaceAppearance")
+	if sa then
+		local ok, map = pcall(function()
+			return sa.ColorMap
+		end)
+		if ok and map ~= "" then
+			return map
+		end
+	end
+	return nil
+end
+
+local function fxPart(size: Vector3, cf: CFrame, color: Color3?): Part
+	local p = Instance.new("Part")
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanTouch = false
+	p.CanQuery = false
+	p.CastShadow = false
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Size = size
+	p.CFrame = cf
+	if color then
+		p.Material = Enum.Material.Neon
+		p.Color = color
+	else
+		p.Transparency = 1
+	end
+	return p
+end
+
+local function collect(root: Instance)
+	local byTag = { bld = {}, street = {}, concrete = {}, led = {}, screen = {}, sign = {}, signlit = {} }
+	local carrier
+	for _, d in ipairs(root:GetDescendants()) do
+		if d:IsA("BasePart") then
+			if d.Name == CARRIER then
+				carrier = d
+			else
+				local tag = string.match(d.Name, "__(%a+)$")
+				if tag and byTag[tag] then
+					d.Anchored = true -- imported parts may come in unanchored
+					table.insert(byTag[tag], d)
+				end
+			end
+		end
+	end
+	return byTag, carrier
+end
+
+local function studsPerMeter(carrier: BasePart?, screens: { BasePart }): number
+	if carrier then
+		return math.max(carrier.Size.X, carrier.Size.Z) / Data.carrierMeters
+	end
+	for _, p in ipairs(screens) do
+		local d = Data.screens[p.Name]
+		if d then
+			return p.Size.Magnitude / Vector3.new(d.size[1], d.size[2], d.size[3]).Magnitude
+		end
+	end
+	return 1
+end
+
+local function setupLighting()
+	Lighting.ClockTime = 0
+	Lighting.Brightness = 1
+	Lighting.Ambient = Color3.fromRGB(45, 35, 75)
+	Lighting.OutdoorAmbient = Color3.fromRGB(75, 60, 125)
+	Lighting.EnvironmentDiffuseScale = 0.4
+	Lighting.EnvironmentSpecularScale = 1
+	Lighting.GlobalShadows = true
+	pcall(function()
+		Lighting.Technology = Enum.Technology.Future -- only settable from Studio / command bar
+	end)
+	for _, c in ipairs(Lighting:GetChildren()) do
+		if c:IsA("Atmosphere") or c.Name == "CP_Bloom" or c.Name == "CP_Color" then
+			c:Destroy()
+		end
+	end
+	local atm = Instance.new("Atmosphere")
+	atm.Name = "CP_Atmosphere"
+	atm.Density = 0.32
+	atm.Offset = 0.15
+	atm.Color = Color3.fromRGB(110, 80, 170)
+	atm.Decay = Color3.fromRGB(40, 20, 90)
+	atm.Glare = 0
+	atm.Haze = 2.2
+	atm.Parent = Lighting
+	local bloom = Instance.new("BloomEffect")
+	bloom.Name = "CP_Bloom"
+	bloom.Intensity = 1.1
+	bloom.Size = 28
+	bloom.Threshold = 0.85
+	bloom.Parent = Lighting
+	local cc = Instance.new("ColorCorrectionEffect")
+	cc.Name = "CP_Color"
+	cc.Contrast = 0.12
+	cc.Saturation = 0.25
+	cc.TintColor = Color3.fromRGB(235, 228, 255)
+	cc.Parent = Lighting
+end
+
+local function styleSurfaces(byTag)
+	for _, p in ipairs(byTag.bld) do
+		local r = Random.new(hash(p.Name))
+		p.Material = Enum.Material.Concrete
+		p.Color = Color3.fromHSV(r:NextNumber(), r:NextNumber(0.03, 0.12), r:NextNumber(0.16, 0.26))
+	end
+	for _, p in ipairs(byTag.street) do
+		if string.find(p.Name, "Street") then
+			p.Material = Enum.Material.Asphalt
+			p.Color = Color3.fromRGB(28, 28, 32)
+		else
+			p.Material = Enum.Material.Concrete
+			p.Color = Color3.fromRGB(88, 86, 86)
+		end
+		p.Reflectance = 0.05 -- a hint of wet street
+	end
+	for _, p in ipairs(byTag.concrete) do
+		local r = Random.new(hash(p.Name))
+		p.Material = Enum.Material.Concrete
+		p.Color = Color3.fromHSV(0.08, 0.04, r:NextNumber(0.36, 0.5))
+	end
+	for _, p in ipairs(byTag.led) do
+		local r = Random.new(hash(p.Name))
+		local accent = Config.Accents[r:NextInteger(1, #Config.Accents)]
+		p.Material = Enum.Material.Neon
+		p.Color = accent
+		p:SetAttribute("Accent", accent)
+		CollectionService:AddTag(p, "CP_LED")
+	end
+	for _, p in ipairs(byTag.signlit) do
+		local r = Random.new(hash(p.Name))
+		if r:NextNumber() < Config.FaultySignChance then
+			CollectionService:AddTag(p, "CP_FaultySign")
+		end
+	end
+end
+
+local function ring(p: BasePart, y: number, thick: number, color: Color3, tag: string?, folder: Instance)
+	local s = p.Size
+	local hx, hz = s.X / 2 + thick / 2, s.Z / 2 + thick / 2
+	local segments = {
+		{ Vector3.new(0, y, hz), Vector3.new(s.X + thick * 2, thick, thick) },
+		{ Vector3.new(0, y, -hz), Vector3.new(s.X + thick * 2, thick, thick) },
+		{ Vector3.new(hx, y, 0), Vector3.new(thick, thick, s.Z) },
+		{ Vector3.new(-hx, y, 0), Vector3.new(thick, thick, s.Z) },
+	}
+	for _, seg in ipairs(segments) do
+		local n = fxPart(seg[2], p.CFrame * CFrame.new(seg[1]), color)
+		n.Name = "NeonRing"
+		if tag then
+			n:SetAttribute("Accent", color)
+			n:SetAttribute("Phase", (hash(p.Name) % 1000) / 1000 * 2 * math.pi)
+			CollectionService:AddTag(n, tag)
+		end
+		n.Parent = folder
+	end
+end
+
+local function decorateBuildings(buildings, windowImage: string?, M: number, folder: Instance)
+	local thick = Config.NeonThicknessMeters * M
+	local cellPx = 16
+	for _, p in ipairs(buildings) do
+		for _, c in ipairs(p:GetChildren()) do
+			if c.Name == "CP_Windows" then
+				c:Destroy()
+			end
+		end
+		local s = p.Size
+		if math.max(s.X, s.Z) <= Config.MaxRingFootprintMeters * M then
+			local r = Random.new(hash(p.Name))
+			local accent = Config.Accents[r:NextInteger(1, #Config.Accents)]
+
+			if Config.NeonRings then
+				ring(p, s.Y / 2 - thick * 1.5, thick * 1.5, accent, "CP_Crown", folder)
+				if r:NextNumber() < Config.BandChance then
+					local spacing = r:NextNumber(Config.BandSpacingMeters[1], Config.BandSpacingMeters[2]) * M
+					local y = spacing
+					while y < s.Y - spacing * 0.5 do
+						ring(p, y - s.Y / 2, thick, accent, nil, folder)
+						y += spacing
+					end
+				end
+			end
+
+			if Config.Windows and windowImage then
+				-- texture tile = 4 windows x 4 floors, one window cell = 1.8 m x 3.6 m
+				local pps = cellPx / (1.8 * M)
+				for _, face in ipairs(SIDE_FACES) do
+					local gui = Instance.new("SurfaceGui")
+					gui.Name = "CP_Windows"
+					gui.Face = face
+					gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+					gui.PixelsPerStud = pps
+					gui.LightInfluence = 0
+					gui.Brightness = 1.3
+					gui.ClipsDescendants = true
+					local img = Instance.new("ImageLabel")
+					img.BackgroundTransparency = 1
+					img.Image = windowImage
+					img.ScaleType = Enum.ScaleType.Tile
+					img.TileSize = UDim2.fromOffset(cellPx * 4, cellPx * 8)
+					img.Size = UDim2.new(1, cellPx * 4, 1, cellPx * 8)
+					img.Position = UDim2.fromOffset(-r:NextInteger(0, 3) * cellPx, -r:NextInteger(0, 3) * cellPx * 2)
+					img.Parent = gui
+					gui.Parent = p
+				end
+			end
+		end
+	end
+end
+
+local function buildScreens(screens, M: number, folder: Instance): number
+	local S = Config.AtlasPixels
+	local made = 0
+	for _, p in ipairs(screens) do
+		local d = Data.screens[p.Name]
+		local image = textureOf(p)
+		if d and image then
+			local dataSize = Vector3.new(d.size[1], d.size[2], d.size[3])
+			local k = if dataSize.Magnitude > 0 then p.Size.Magnitude / dataSize.Magnitude else M
+			local r = Random.new(hash(p.Name))
+			local phases = {}
+			for gi = 1, #d.groups do
+				phases[gi] = r:NextNumber()
+			end
+			for _, pd in ipairs(d.panels) do
+				local g = d.groups[pd.g]
+				local n = Vector3.new(pd.n[1], pd.n[2], pd.n[3]).Unit
+				local right = Vector3.new(pd.r[1], pd.r[2], pd.r[3]).Unit
+				local up = n:Cross(right)
+				local pos = p.Position + Vector3.new(pd.o[1], pd.o[2], pd.o[3]) * k + n * 0.06
+				local panel = fxPart(Vector3.new(pd.w * k, pd.h * k, 0.05), CFrame.fromMatrix(pos, n:Cross(up), up, -n))
+				panel.Name = "CP_Screen"
+
+				local fw, fh = pd.f[2] - pd.f[1], pd.f[4] - pd.f[3]
+				panel:SetAttribute("FX", pd.f[1])
+				panel:SetAttribute("FY", pd.f[3])
+				panel:SetAttribute("FW", fw)
+				panel:SetAttribute("FH", fh)
+				panel:SetAttribute("Speed", g.s)
+				panel:SetAttribute("Axis", g.ax)
+				panel:SetAttribute("Phase", phases[pd.g])
+
+				local gui = Instance.new("SurfaceGui")
+				gui.Face = Enum.NormalId.Front
+				gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+				gui.PixelsPerStud = math.clamp(Config.ScreenPixelsPerMeter / M, 0.5, 50)
+				gui.LightInfluence = 0
+				gui.Brightness = Config.ScreenBrightness
+				local clip = Instance.new("Frame")
+				clip.Name = "Clip"
+				clip.Size = UDim2.fromScale(1, 1)
+				clip.BackgroundColor3 = Color3.new(0, 0, 0)
+				clip.BorderSizePixel = 0
+				clip.ClipsDescendants = true
+				clip.Parent = gui
+				for i, name in ipairs({ "A", "B" }) do
+					local img = Instance.new("ImageLabel")
+					img.Name = name
+					img.BackgroundTransparency = 1
+					img.Image = image
+					img.ImageRectOffset = Vector2.new(g.uv[1] * S, (1 - g.uv[2] - g.uv[4]) * S)
+					img.ImageRectSize = Vector2.new(g.uv[3] * S, g.uv[4] * S)
+					img.Size = UDim2.fromScale(1 / fw, 1 / fh)
+					local shift = i - 1
+					if g.ax == "X" then
+						img.Position = UDim2.fromScale((shift - pd.f[1]) / fw, -pd.f[3] / fh)
+					else
+						img.Position = UDim2.fromScale(-pd.f[1] / fw, (shift - pd.f[3]) / fh)
+					end
+					img.Parent = clip
+				end
+				local scan = Instance.new("Frame")
+				scan.Name = "Scan"
+				scan.Size = UDim2.fromScale(1, 0.04 / fh)
+				scan.BackgroundColor3 = Color3.new(1, 1, 1)
+				scan.BackgroundTransparency = 0.8
+				scan.BorderSizePixel = 0
+				scan.ZIndex = 2
+				scan.Parent = clip
+				gui.Parent = panel
+				CollectionService:AddTag(panel, "CP_Screen")
+				panel.Parent = folder
+				made += 1
+			end
+		end
+	end
+	return made
+end
+
+function Setup.run()
+	local root = Config.CityRoot or workspace
+	local byTag, carrier = collect(root)
+	local M = studsPerMeter(carrier, byTag.screen)
+
+	local windowImage = Config.WindowImage
+	if carrier then
+		carrier.Transparency = 1
+		carrier.CanCollide = false
+		carrier.Anchored = true
+		windowImage = windowImage or textureOf(carrier)
+	end
+	if Config.Windows and not windowImage then
+		warn("[Cyberpunk] window texture not found; set CyberpunkConfig.WindowImage")
+	end
+
+	local old = workspace:FindFirstChild("CyberpunkFX")
+	if old then
+		old:Destroy()
+	end
+	local fx = Instance.new("Folder")
+	fx.Name = "CyberpunkFX"
+
+	if Config.Lighting then
+		setupLighting()
+	end
+	styleSurfaces(byTag)
+	decorateBuildings(byTag.bld, windowImage, M, fx)
+	local screens = buildScreens(byTag.screen, M, fx)
+
+	fx.Parent = workspace
+	workspace:SetAttribute("CyberpunkStudsPerMeter", M)
+	workspace:SetAttribute("CyberpunkReady", true)
+	print(
+		string.format(
+			"[Cyberpunk] %d buildings, %d streets, %d props, %d LED strips, %d billboard screens (%.3f studs/m)",
+			#byTag.bld,
+			#byTag.street,
+			#byTag.concrete,
+			#byTag.led,
+			screens,
+			M
+		)
+	)
+end
+
+return Setup
+]]></ProtectedString>
+			</Properties>
+		</Item>
+		<Item class="ModuleScript" referent="RBX3">
+			<Properties>
+				<string name="Name">BillboardData</string>
+				<ProtectedString name="Source"><![CDATA[-- Generated by blender/export_roblox.py. Billboard screen placement, in metres,
+-- relative to each __screen MeshPart's bounding-box centre (Roblox axes).
+return { carrierMeters = 10, screens = {
+	["Billboard_LandmarkCurved_001__screen"] = {size={28.2093,50,23.7696}, groups={{uv={0.5015,0.5015,0.247,0.247},s=-0.1571,ax="Y"}}, panels={{g=1,o={-13.5686,-0,-10.4469},n={-0.92,0,0.3919},r={0.3919,0,0.92},w=2.7362,h=50,f={0,0.0714,0,1}}, {g=1,o={-12.4069,0,-7.9716},n={-0.8893,0,0.4573},r={0.4573,0,0.8893},w=2.7362,h=50,f={0.0714,0.1429,0,1}}, {g=1,o={-11.0691,0,-5.5867},n={-0.8539,0,0.5204},r={0.5204,0,0.8539},w=2.7362,h=50,f={0.1429,0.2143,0,1}}, {g=1,o={-9.5629,0,-3.3046},n={-0.8141,0,0.5807},r={0.5807,0,0.8141},w=2.7362,h=50,f={0.2143,0.2857,0,1}}, {g=1,o={-7.8955,0,-1.1374},n={-0.77,0,0.638},r={0.638,0,0.77},w=2.7362,h=50,f={0.2857,0.3571,0,1}}, {g=1,o={-6.076,0,0.9039},n={-0.7219,0,0.692},r={0.692,0,0.7219},w=2.7362,h=50,f={0.3571,0.4286,0,1}}, {g=1,o={-4.1138,0,2.8082},n={-0.6701,0,0.7423},r={0.7423,0,0.6701},w=2.7362,h=50,f={0.4286,0.5,0,1}}, {g=1,o={-2.019,0,4.5659},n={-0.6147,0,0.7888},r={0.7888,0,0.6147},w=2.7362,h=50,f={0.5,0.5714,0,1}}, {g=1,o={0.1972,0,6.1675},n={-0.5561,0,0.8311},r={0.8311,0,0.5561},w=2.7362,h=50,f={0.5714,0.6429,0,1}}, {g=1,o={2.5232,-0,7.6051},n={-0.4946,0,0.8691},r={0.8691,0,0.4946},w=2.7362,h=50,f={0.6429,0.7143,0,1}}, {g=1,o={4.9471,-0,8.8708},n={-0.4305,0,0.9026},r={0.9026,0,0.4305},w=2.7362,h=50,f={0.7143,0.7857,0,1}}, {g=1,o={7.4561,-0,9.9579},n={-0.3642,0,0.9313},r={0.9313,0,0.3642},w=2.7362,h=50,f={0.7857,0.8571,0,1}}, {g=1,o={10.0371,0,10.8611},n={-0.296,0,0.9552},r={0.9552,0,0.296},w=2.7361,h=50,f={0.8571,0.9286,0,1}}, {g=1,o={12.6766,0,11.5753},n={-0.2262,0,0.9741},r={0.9741,0,0.2262},w=2.7362,h=50,f={0.9286,1,0,1}}}},
+	["Billboard_Landmark_001__screen"] = {size={47,13.0304,0.5}, groups={{uv={0.0015,0.7515,0.247,0.247},s=-0.1214,ax="X"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,0,0},w=47,h=13.0304,f={0,1,0,1}}}},
+	["Billboard_Landmark_002__screen"] = {size={0.5,27,46.44}, groups={{uv={0.7515,0.5015,0.247,0.247},s=0.1779,ax="X"}}, panels={{g=1,o={-0.2501,0,0},n={-1,0,-0},r={-0,0,1},w=46.44,h=27,f={0,1,0,1}}}},
+	["Billboard_Landmark_003__screen"] = {size={54,30,0.5}, groups={{uv={0.7515,0.5015,0.247,0.247},s=-0.1573,ax="X"}}, panels={{g=1,o={0,0,-0.25},n={0,0,-1},r={-1,0,0},w=54,h=30,f={0,1,0,1}}}},
+	["Billboard_Landmark_004__screen"] = {size={54,52,0.5}, groups={{uv={0.2515,0.7515,0.247,0.247},s=-0.1285,ax="X"}}, panels={{g=1,o={0,0,-0.25},n={0,0,-1},r={-1,0,0},w=54,h=52,f={0,1,0,1}}}},
+	["Billboard_Landmark_005__screen"] = {size={0.5,52,54}, groups={{uv={0.5015,0.0015,0.247,0.247},s=0.1917,ax="X"}}, panels={{g=1,o={-0.2501,0,0},n={-1,-0,-0},r={-0,0,1},w=54,h=52,f={0,1,0,1}}}},
+	["Billboard_Landmark_006__screen"] = {size={0.5,28.845,48.7555}, groups={{uv={0.0015,0.2515,0.247,0.247},s=0.1807,ax="X"}}, panels={{g=1,o={-0.25,-0,0},n={-1,0,-0},r={-0,0,1},w=48.7555,h=28.845,f={0,1,0,1}}}},
+	["Billboard_Landmark_007__screen"] = {size={46.6196,28.2526,0.5}, groups={{uv={0.0015,0.7515,0.247,0.247},s=-0.1391,ax="X"}}, panels={{g=1,o={0,0,-0.25},n={0,0,-1},r={-1,0,0},w=46.6195,h=28.2526,f={0,1,0,1}}}},
+	["Billboard_Landmark_008__screen"] = {size={0.5,27.1233,46.9073}, groups={{uv={0.5015,0.7515,0.247,0.247},s=0.1607,ax="X"}}, panels={{g=1,o={0.25,0,0},n={1,0,-0},r={-0,-0,-1},w=46.9073,h=27.1233,f={0,1,0,1}}, {g=1,o={0.25,0,0},n={1,0,-0},r={-0,-0,-1},w=46.9073,h=27.1233,f={0,1,0,1}}}},
+	["Billboard_Large_001__screen"] = {size={24.0587,12.3622,0.5}, groups={{uv={0.7515,0.2515,0.247,0.247},s=0.1569,ax="X"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,-0,0},w=24.0587,h=12.3622,f={0,1,0,1}}}},
+	["Billboard_Large_002__screen"] = {size={23.7461,11.3319,0.5}, groups={{uv={0.0015,0.5015,0.247,0.247},s=0.1478,ax="X"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,0,0},w=23.7461,h=11.3319,f={0,1,0,1}}}},
+	["Billboard_Large_003__screen"] = {size={0.5,15.6524,22.4063}, groups={{uv={0.0015,0.2515,0.247,0.247},s=0.1598,ax="X"}}, panels={{g=1,o={-0.25,-0,0.0001},n={-1,0,-0},r={-0,0,1},w=22.4062,h=15.6524,f={0,1,0,1}}, {g=1,o={-0.25,-0,0.0001},n={-1,0,-0},r={-0,0,1},w=22.4062,h=15.6524,f={0,1,0,1}}}},
+	["Billboard_Large_004__screen"] = {size={27,12.4448,0.5}, groups={{uv={0.2515,0.0015,0.247,0.247},s=-0.1741,ax="X"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,0,0},w=27,h=12.4448,f={0,1,0,1}}}},
+	["Billboard_Large_005__screen"] = {size={27,9.797,0.5}, groups={{uv={0.7515,0.7515,0.247,0.247},s=-0.0984,ax="X"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,0,0},w=27,h=9.797,f={0,1,0,1}}}},
+	["Billboard_Large_006__screen"] = {size={27,10.7688,0.5}, groups={{uv={0.0015,0.5015,0.247,0.247},s=0.144,ax="X"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,0,0},w=27,h=10.7688,f={0,1,0,1}}, {g=1,o={0,0,0.25},n={-0,0,1},r={1,0,0},w=27,h=10.7688,f={0,1,0,1}}}},
+	["Billboard_Large_007__screen"] = {size={27,11.6848,0.5}, groups={{uv={0.5015,0.7515,0.247,0.247},s=0.1774,ax="X"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,0,0},w=27,h=11.6848,f={0,1,0,1}}, {g=1,o={0,0,0.25},n={-0,0,1},r={1,0,0},w=27,h=11.6848,f={0,1,0,1}}}},
+	["Billboard_Large_008__screen"] = {size={27,13.6994,0.5}, groups={{uv={0.0015,0.7515,0.247,0.247},s=-0.1892,ax="X"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,0,0},w=27,h=13.6994,f={0,1,0,1}}}},
+	["Billboard_Large_009__screen"] = {size={27,10.198,0.5}, groups={{uv={0.7515,0.7515,0.247,0.247},s=0.087,ax="X"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,0,0},w=27,h=10.198,f={0,1,0,1}}}},
+	["Billboard_Large_010__screen"] = {size={25.9677,29.9741,0.5}, groups={{uv={0.7515,0.2515,0.247,0.247},s=0.1097,ax="Y"}}, panels={{g=1,o={0,0,-0.25},n={0,0,-1},r={-1,0,0},w=25.9677,h=29.9741,f={0,1,0,1}}}},
+	["Billboard_Large_011__screen"] = {size={24.5206,10.8354,0.5}, groups={{uv={0.5015,0.5015,0.247,0.247},s=-0.0973,ax="X"}}, panels={{g=1,o={0,0,-0.25},n={0,0,-1},r={-1,0,0},w=24.5206,h=10.8354,f={0,1,0,1}}}},
+	["Billboard_Large_012__screen"] = {size={0.5,28.4714,22.0331}, groups={{uv={0.5015,0.2515,0.247,0.247},s=0.1354,ax="Y"}}, panels={{g=1,o={0.25,0,0},n={1,-0,-0},r={-0,-0,-1},w=22.0331,h=28.4714,f={0,1,0,1}}, {g=1,o={0.25,0,0},n={1,-0,-0},r={-0,-0,-1},w=22.0331,h=28.4714,f={0,1,0,1}}}},
+	["Billboard_Large_013__screen"] = {size={0.5,15.8883,23.8227}, groups={{uv={0.2515,0.0015,0.247,0.247},s=-0.1769,ax="X"}}, panels={{g=1,o={-0.25,-0,-0.0001},n={-1,0,-0},r={-0,0,1},w=23.8227,h=15.8883,f={0,1,0,1}}}},
+	["Billboard_Large_014__screen"] = {size={32.5043,14.2348,0.5}, groups={{uv={0.5015,0.7515,0.247,0.247},s=0.0988,ax="X"}}, panels={{g=1,o={0,-0,-0.25},n={0,0,-1},r={-1,0,0},w=32.5043,h=14.2348,f={0,1,0,1}}}},
+	["Billboard_Large_015__screen"] = {size={0.5,12.3766,37.1445}, groups={{uv={0.5015,0.2515,0.247,0.247},s=-0.1094,ax="X"}}, panels={{g=1,o={0.25,0,0},n={1,0,-0},r={-0,-0,-1},w=37.1445,h=12.3766,f={0,1,0,1}}}},
+	["Billboard_Large_016__screen"] = {size={0.5,14.0082,26.0295}, groups={{uv={0.7515,0.5015,0.247,0.247},s=0.1757,ax="X"}}, panels={{g=1,o={0.25,0,0},n={1,0,-0},r={-0,-0,-1},w=26.0295,h=14.0082,f={0,1,0,1}}, {g=1,o={0.25,0,0},n={1,0,-0},r={-0,-0,-1},w=26.0295,h=14.0082,f={0,1,0,1}}}},
+	["Billboard_Large_017__screen"] = {size={0.5,11.5732,34}, groups={{uv={0.7515,0.7515,0.247,0.247},s=-0.173,ax="X"}}, panels={{g=1,o={0.25,0,0},n={1,0,-0},r={-0,-0,-1},w=34,h=11.5732,f={0,1,0,1}}}},
+	["Billboard_Large_018__screen"] = {size={26,16,0.5}, groups={{uv={0.7515,0.2515,0.247,0.247},s=0.1126,ax="X"}}, panels={{g=1,o={0.0001,-0,0.25},n={-0,0,1},r={1,0,0},w=26,h=16,f={0,1,0,1}}}},
+	["Billboard_Large_019__screen"] = {size={13.0815,22,13.0815}, groups={{uv={0.2515,0.2515,0.247,0.247},s=0.1213,ax="Y"}}, panels={{g=1,o={0.1768,0,-0.1768},n={0.7071,-0,-0.7071},r={-0.7071,0,-0.7071},w=18,h=22,f={0,1,0,1}}}},
+	["Billboard_Large_020__screen"] = {size={28.8655,14.582,0.5}, groups={{uv={0.2515,0.0015,0.247,0.247},s=0.1278,ax="X"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,0,0},w=28.8655,h=14.582,f={0,1,0,1}}}},
+	["Billboard_Large_021__screen"] = {size={0.5,8.8621,26.202}, groups={{uv={0.2515,0.0015,0.247,0.247},s=0.1274,ax="X"}}, panels={{g=1,o={-0.25,0,0},n={-1,0,-0},r={-0,0,1},w=26.202,h=8.8621,f={0,1,0,1}}}},
+	["Billboard_Large_022__screen"] = {size={25.1644,8.9784,0.5}, groups={{uv={0.5015,0.5015,0.247,0.247},s=0.09,ax="X"}}, panels={{g=1,o={0,0,-0.25},n={0,0,-1},r={-1,0,0},w=25.1644,h=8.9784,f={0,1,0,1}}}},
+	["Billboard_Large_023__screen"] = {size={0.5,19.0343,37.1777}, groups={{uv={0.0015,0.7515,0.247,0.247},s=-0.172,ax="X"}}, panels={{g=1,o={0.25,0,0},n={1,0,-0},r={-0,-0,-1},w=37.1777,h=19.0343,f={0,1,0,1}}}},
+	["Billboard_Medium_001__screen"] = {size={12.4359,6.8528,0.5}, groups={{uv={0.5015,0.7515,0.247,0.247},s=-0.1382,ax="X"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,0,0},w=12.4359,h=6.8528,f={0,1,0,1}}}},
+	["Billboard_Medium_002__screen"] = {size={13.3983,22.0859,0.5}, groups={{uv={0.2515,0.2515,0.247,0.247},s=-0.105,ax="Y"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,-0,0},w=13.3983,h=22.0859,f={0,1,0,1}}}},
+	["Billboard_Medium_003__screen"] = {size={0.5,18.7136,19.5282}, groups={{uv={0.7515,0.7515,0.247,0.247},s=-0.1809,ax="X"}}, panels={{g=1,o={-0.25,0,0},n={-1,0,-0},r={-0,0,1},w=19.5282,h=18.7136,f={0,1,0,1}}}},
+	["Billboard_Medium_004__screen"] = {size={9.9718,31.5747,0.5}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.179,ax="Y"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,0,0},w=9.9718,h=31.5747,f={0,1,0,1}}}},
+	["Billboard_Medium_005__screen"] = {size={0.5,12.7473,17.5827}, groups={{uv={0.5015,0.0015,0.247,0.247},s=0.0895,ax="X"}}, panels={{g=1,o={0.25,0,0},n={1,0,-0},r={-0,-0,-1},w=17.5827,h=12.7473,f={0,1,0,1}}}},
+	["Billboard_Medium_006__screen"] = {size={13.2085,8.2322,0.5}, groups={{uv={0.2515,0.2515,0.247,0.247},s=-0.1045,ax="X"}}, panels={{g=1,o={-0,-0,0.25},n={-0,0,1},r={1,0,0},w=13.2085,h=8.2322,f={0,1,0,1}}}},
+	["Billboard_Medium_007__screen"] = {size={25.7038,10,0.5}, groups={{uv={0.5015,0.7515,0.247,0.247},s=0.1412,ax="X"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,0,0},w=25.7039,h=10,f={0,1,0,1}}}},
+	["Billboard_Medium_008__screen"] = {size={27.1285,10,0.5}, groups={{uv={0.2515,0.5015,0.247,0.247},s=0.1936,ax="X"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,0,0},w=27.1285,h=10,f={0,1,0,1}}}},
+	["Billboard_Medium_009__screen"] = {size={19.5704,10,0.5}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.1327,ax="X"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,0,0},w=19.5704,h=10,f={0,1,0,1}}, {g=1,o={0,0,0.25},n={-0,0,1},r={1,0,0},w=19.5704,h=10,f={0,1,0,1}}}},
+	["Billboard_Medium_010__screen"] = {size={21.9263,10,0.5}, groups={{uv={0.2515,0.0015,0.247,0.247},s=-0.1775,ax="X"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,0,0},w=21.9263,h=10,f={0,1,0,1}}}},
+	["Billboard_Medium_011__screen"] = {size={0.5,28.4193,11.415}, groups={{uv={0.7515,0.7515,0.247,0.247},s=0.1296,ax="Y"}}, panels={{g=1,o={-0.25,-0,0.0001},n={-1,-0,-0},r={-0,0,1},w=11.415,h=28.4193,f={0,1,0,1}}}},
+	["Billboard_Medium_012__screen"] = {size={0.5,10,21.7391}, groups={{uv={0.2515,0.5015,0.247,0.247},s=-0.0873,ax="X"}}, panels={{g=1,o={-0.25,0,0},n={-1,0,-0},r={-0,0,1},w=21.7391,h=10,f={0,1,0,1}}, {g=1,o={-0.25,0,0},n={-1,0,-0},r={-0,0,1},w=21.7391,h=10,f={0,1,0,1}}}},
+	["Billboard_Medium_013__screen"] = {size={0.5,10,22.5825}, groups={{uv={0.7515,0.2515,0.247,0.247},s=0.1756,ax="X"}}, panels={{g=1,o={-0.25,0,0},n={-1,0,-0},r={-0,0,1},w=22.5825,h=10,f={0,1,0,1}}}},
+	["Billboard_Medium_014__screen"] = {size={0.5,16.2,22.68}, groups={{uv={0.5015,0.7515,0.247,0.247},s=-0.1203,ax="X"}}, panels={{g=1,o={-0.2501,0,0},n={-1,0,-0},r={-0,0,1},w=22.68,h=16.2,f={0,1,0,1}}}},
+	["Billboard_Medium_015__screen"] = {size={0.5,22.68,20.52}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.1007,ax="Y"}}, panels={{g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=20.52,h=22.68,f={0,1,0,1}}, {g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=20.52,h=22.68,f={0,1,0,1}}}},
+	["Billboard_Medium_016__screen"] = {size={0.5,10.2436,17.954}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.1913,ax="X"}}, panels={{g=1,o={-0.25,0,0},n={-1,0,-0},r={-0,0,1},w=17.954,h=10.2436,f={0,1,0,1}}}},
+	["Billboard_Medium_017__screen"] = {size={17.8397,12.643,0.5}, groups={{uv={0.5015,0.5015,0.247,0.247},s=0.1732,ax="X"}}, panels={{g=1,o={0,-0,-0.25},n={0,0,-1},r={-1,0,0},w=17.8397,h=12.643,f={0,1,0,1}}}},
+	["Billboard_Medium_018__screen"] = {size={16.1669,10.5641,0.5}, groups={{uv={0.7515,0.2515,0.247,0.247},s=-0.0821,ax="X"}}, panels={{g=1,o={0,0,-0.25},n={0,0,-1},r={-1,0,0},w=16.1669,h=10.5641,f={0,1,0,1}}}},
+	["Billboard_Medium_019__screen"] = {size={10.7244,23.8403,0.5}, groups={{uv={0.5015,0.5015,0.247,0.247},s=0.1009,ax="Y"}}, panels={{g=1,o={0,0,-0.25},n={0,0,-1},r={-1,0,0},w=10.7244,h=23.8403,f={0,1,0,1}}}},
+	["Billboard_Medium_020__screen"] = {size={16.8678,9.8969,0.5}, groups={{uv={0.5015,0.5015,0.247,0.247},s=0.1381,ax="X"}}, panels={{g=1,o={0,0,-0.25},n={0,0,-1},r={-1,0,0},w=16.8678,h=9.8969,f={0,1,0,1}}}},
+	["Billboard_Medium_021__screen"] = {size={0.5,17.5015,17.8212}, groups={{uv={0.7515,0.2515,0.247,0.247},s=-0.0907,ax="X"}}, panels={{g=1,o={0.25,0,0},n={1,0,-0},r={-0,0,-1},w=17.8212,h=17.5015,f={0,1,0,1}}}},
+	["Billboard_Medium_022__screen"] = {size={0.5,16.2031,20.9346}, groups={{uv={0.5015,0.0015,0.247,0.247},s=0.1036,ax="X"}}, panels={{g=1,o={-0.25,0,0},n={-1,0,-0},r={-0,0,1},w=20.9346,h=16.2031,f={0,1,0,1}}}},
+	["Billboard_Medium_023__screen"] = {size={17.66,13.3449,0.5}, groups={{uv={0.2515,0.5015,0.247,0.247},s=-0.0913,ax="X"}}, panels={{g=1,o={0,0,-0.25},n={0,0,-1},r={-1,0,0},w=17.66,h=13.3449,f={0,1,0,1}}}},
+	["Billboard_Medium_024__screen"] = {size={14.1997,8.4688,0.5}, groups={{uv={0.2515,0.7515,0.247,0.247},s=0.1581,ax="X"}}, panels={{g=1,o={0,-0,-0.25},n={0,0,-1},r={-1,0,0},w=14.1997,h=8.4688,f={0,1,0,1}}}},
+	["Billboard_Medium_025__screen"] = {size={23.1283,10,0.5}, groups={{uv={0.7515,0.5015,0.247,0.247},s=0.1683,ax="X"}}, panels={{g=1,o={0,0,-0.25},n={0,0,-1},r={-1,0,0},w=23.1283,h=10,f={0,1,0,1}}}},
+	["Billboard_Medium_026__screen"] = {size={19.3286,10,0.5}, groups={{uv={0.2515,0.7515,0.247,0.247},s=0.1244,ax="X"}}, panels={{g=1,o={0,-0,-0.25},n={0,0,-1},r={-1,0,0},w=19.3286,h=10,f={0,1,0,1}}}},
+	["Billboard_Medium_027__screen"] = {size={0.5,9.7881,17.6421}, groups={{uv={0.0015,0.7515,0.247,0.247},s=-0.1267,ax="X"}}, panels={{g=1,o={0.25,0,0},n={1,0,-0},r={-0,-0,-1},w=17.6421,h=9.7881,f={0,1,0,1}}, {g=1,o={0.25,0,0},n={1,0,-0},r={-0,-0,-1},w=17.6421,h=9.7881,f={0,1,0,1}}}},
+	["Billboard_Medium_028__screen"] = {size={0.5,9.4451,12.2997}, groups={{uv={0.0015,0.2515,0.247,0.247},s=0.1724,ax="X"}}, panels={{g=1,o={0.25,0,0},n={1,0,-0},r={-0,-0,-1},w=12.2997,h=9.4451,f={0,1,0,1}}}},
+	["Billboard_Medium_029__screen"] = {size={15.8598,7.4844,0.5}, groups={{uv={0.5015,0.0015,0.247,0.247},s=-0.1745,ax="X"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,0,0},w=15.8599,h=7.4844,f={0,1,0,1}}}},
+	["Billboard_Medium_030__screen"] = {size={18.4648,6.2716,0.5}, groups={{uv={0.5015,0.2515,0.247,0.247},s=0.1015,ax="X"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,-0,0},w=18.4648,h=6.2716,f={0,1,0,1}}}},
+	["Billboard_Medium_031__screen"] = {size={20.2514,8.2128,0.5}, groups={{uv={0.5015,0.2515,0.247,0.247},s=0.1826,ax="X"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,0,0},w=20.2513,h=8.2128,f={0,1,0,1}}}},
+	["Billboard_Medium_032__screen"] = {size={14.4459,7.4636,0.5}, groups={{uv={0.5015,0.5015,0.247,0.247},s=-0.1761,ax="X"}}, panels={{g=1,o={0,0,-0.25},n={0,0,-1},r={-1,0,0},w=14.4459,h=7.4637,f={0,1,0,1}}}},
+	["Billboard_Skyline_001__screen"] = {size={0.6,51.3154,24.2656}, groups={{uv={0.0015,0.2515,0.247,0.247},s=0.1546,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=24.2655,h=51.3154,f={0,1,0,1}}}},
+	["Billboard_Skyline_002__screen"] = {size={0.6,21.9281,35.7452}, groups={{uv={0.5015,0.5015,0.247,0.247},s=0.1781,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=35.7452,h=21.9281,f={0,1,0,1}}}},
+	["Billboard_Skyline_003__screen"] = {size={0.6,51.154,20.4136}, groups={{uv={0.7515,0.0015,0.247,0.247},s=0.0968,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=20.4136,h=51.154,f={0,1,0,1}}}},
+	["Billboard_Skyline_004__screen"] = {size={29.1403,18.5617,0.6}, groups={{uv={0.0015,0.0015,0.247,0.247},s=0.1279,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=29.1404,h=18.5617,f={0,1,0,1}}}},
+	["Billboard_Skyline_005__screen"] = {size={0.6,49.9352,16.6813}, groups={{uv={0.0015,0.7515,0.247,0.247},s=0.1645,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,-0,-1},w=16.6813,h=49.9352,f={0,1,0,1}}}},
+	["Billboard_Skyline_006__screen"] = {size={0.6,15.2847,26.3803}, groups={{uv={0.5015,0.0015,0.247,0.247},s=-0.1866,ax="X"}}, panels={{g=1,o={0.3,-0,-0},n={1,0,-0},r={-0,-0,-1},w=26.3803,h=15.2847,f={0,1,0,1}}}},
+	["Billboard_Skyline_007__screen"] = {size={0.6,28.5068,36.9981}, groups={{uv={0.2515,0.5015,0.247,0.247},s=-0.1255,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=36.9981,h=28.5068,f={0,1,0,1}}}},
+	["Billboard_Skyline_008__screen"] = {size={24.9162,77.9312,0.6}, groups={{uv={0.0015,0.0015,0.247,0.247},s=0.1569,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=24.9163,h=77.9312,f={0,1,0,1}}}},
+	["Billboard_Skyline_009__screen"] = {size={0.6,20.5333,27.7597}, groups={{uv={0.0015,0.2515,0.247,0.247},s=0.1319,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=27.7596,h=20.5333,f={0,1,0,1}}}},
+	["Billboard_Skyline_010__screen"] = {size={0.6,34.8831,15.5753}, groups={{uv={0.2515,0.5015,0.247,0.247},s=0.0987,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=15.5753,h=34.8831,f={0,1,0,1}}}},
+	["Billboard_Skyline_011__screen"] = {size={0.6,30.6226,48.4586}, groups={{uv={0.0015,0.7515,0.247,0.247},s=-0.1678,ax="X"}}, panels={{g=1,o={0.3,-0,-0.0001},n={1,0,-0},r={-0,-0,-1},w=48.4586,h=30.6226,f={0,1,0,1}}}},
+	["Billboard_Skyline_012__screen"] = {size={0.6,34.8186,16.7916}, groups={{uv={0.7515,0.5015,0.247,0.247},s=0.1095,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=16.7916,h=34.8186,f={0,1,0,1}}}},
+	["Billboard_Skyline_013__screen"] = {size={0.6,37.8648,44.7246}, groups={{uv={0.2515,0.7515,0.247,0.247},s=-0.1458,ax="X"}}, panels={{g=1,o={0.3,-0.0001,-0},n={1,0,-0},r={-0,-0,-1},w=44.7246,h=37.8648,f={0,1,0,1}}}},
+	["Billboard_Skyline_014__screen"] = {size={42.1028,27.0984,0.6}, groups={{uv={0.5015,0.5015,0.247,0.247},s=-0.1738,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=42.1028,h=27.0984,f={0,1,0,1}}}},
+	["Billboard_Skyline_015__screen"] = {size={0.6,28.2931,34.6868}, groups={{uv={0.2515,0.0015,0.247,0.247},s=-0.1773,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=34.6867,h=28.2931,f={0,1,0,1}}}},
+	["Billboard_Skyline_016__screen"] = {size={0.6,18.3997,32.3157}, groups={{uv={0.0015,0.2515,0.247,0.247},s=0.1628,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=32.3157,h=18.3997,f={0,1,0,1}}}},
+	["Billboard_Skyline_017__screen"] = {size={0.6,46.8076,19.1657}, groups={{uv={0.7515,0.5015,0.247,0.247},s=-0.0872,ax="Y"}}, panels={{g=1,o={0.3,0,-0},n={1,-0,-0},r={-0,0,-1},w=19.1657,h=46.8076,f={0,1,0,1}}}},
+	["Billboard_Skyline_018__screen"] = {size={19.0442,59.9617,0.6}, groups={{uv={0.0015,0.0015,0.247,0.247},s=0.1858,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=19.0442,h=59.9617,f={0,1,0,1}}}},
+	["Billboard_Skyline_019__screen"] = {size={0.6,40.2615,17.7156}, groups={{uv={0.0015,0.5015,0.247,0.247},s=0.1329,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=17.7156,h=40.2615,f={0,1,0,1}}}},
+	["Billboard_Skyline_020__screen"] = {size={0.6,26.4771,42.7414}, groups={{uv={0.2515,0.0015,0.247,0.247},s=-0.1769,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=42.7414,h=26.4771,f={0,1,0,1}}}},
+	["Billboard_Skyline_021__screen"] = {size={37.562,25.1233,0.6}, groups={{uv={0.7515,0.5015,0.247,0.247},s=0.1687,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=37.5619,h=25.1233,f={0,1,0,1}}}},
+	["Billboard_Skyline_022__screen"] = {size={0.6,55.8609,18.1256}, groups={{uv={0.7515,0.5015,0.247,0.247},s=-0.1218,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=18.1255,h=55.8609,f={0,1,0,1}}}},
+	["Billboard_Skyline_023__screen"] = {size={0.6,28.7219,45.0415}, groups={{uv={0.2515,0.7515,0.247,0.247},s=-0.1432,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=45.0415,h=28.7219,f={0,1,0,1}}}},
+	["Billboard_Skyline_024__screen"] = {size={0.6,43.4392,16.3991}, groups={{uv={0.5015,0.7515,0.247,0.247},s=0.1547,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=16.3991,h=43.4392,f={0,1,0,1}}}},
+	["Billboard_Skyline_025__screen"] = {size={0.6,44.6354,14.7015}, groups={{uv={0.5015,0.2515,0.247,0.247},s=0.1078,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=14.7015,h=44.6354,f={0,1,0,1}}}},
+	["Billboard_Skyline_026__screen"] = {size={0.6,30.1926,42.1227}, groups={{uv={0.5015,0.0015,0.247,0.247},s=0.0912,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=42.1227,h=30.1926,f={0,1,0,1}}}},
+	["Billboard_Skyline_027__screen"] = {size={49.8761,34.052,0.6}, groups={{uv={0.5015,0.5015,0.247,0.247},s=0.1063,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=49.876,h=34.052,f={0,1,0,1}}}},
+	["Billboard_Skyline_028__screen"] = {size={0.6,21.299,27.0536}, groups={{uv={0.2515,0.5015,0.247,0.247},s=-0.1997,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=27.0535,h=21.299,f={0,1,0,1}}}},
+	["Billboard_Skyline_029__screen"] = {size={0.6,68.5066,27.3296}, groups={{uv={0.5015,0.7515,0.247,0.247},s=0.1927,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=27.3296,h=68.5066,f={0,1,0,1}}}},
+	["Billboard_Skyline_030__screen"] = {size={42.7485,31.1602,0.6}, groups={{uv={0.0015,0.0015,0.247,0.247},s=-0.1095,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=42.7485,h=31.1602,f={0,1,0,1}}}},
+	["Billboard_Skyline_031__screen"] = {size={0.6,25.5778,12.7524}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.1385,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=12.7524,h=25.5778,f={0,1,0,1}}}},
+	["Billboard_Skyline_032__screen"] = {size={33.1895,24.6273,0.6}, groups={{uv={0.5015,0.0015,0.247,0.247},s=0.1789,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=33.1895,h=24.6273,f={0,1,0,1}}}},
+	["Billboard_Skyline_033__screen"] = {size={0.6,25.1575,38.5794}, groups={{uv={0.0015,0.0015,0.247,0.247},s=-0.1415,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=38.5793,h=25.1574,f={0,1,0,1}}}},
+	["Billboard_Skyline_034__screen"] = {size={0.6,24.5766,43.7673}, groups={{uv={0.2515,0.5015,0.247,0.247},s=-0.1798,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=43.7673,h=24.5765,f={0,1,0,1}}}},
+	["Billboard_Skyline_035__screen"] = {size={35.3259,27.152,0.6}, groups={{uv={0.2515,0.0015,0.247,0.247},s=0.1785,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=35.3259,h=27.152,f={0,1,0,1}}}},
+	["Billboard_Skyline_036__screen"] = {size={0.6,19.1907,30.3186}, groups={{uv={0.2515,0.0015,0.247,0.247},s=0.1063,ax="X"}}, panels={{g=1,o={0.3,-0.0001,-0.0001},n={1,0,-0},r={-0,-0,-1},w=30.3186,h=19.1907,f={0,1,0,1}}}},
+	["Billboard_Skyline_037__screen"] = {size={0.6,28.8851,43.2791}, groups={{uv={0.7515,0.5015,0.247,0.247},s=0.0832,ax="X"}}, panels={{g=1,o={0.3,0,0.0001},n={1,0,-0},r={-0,-0,-1},w=43.2792,h=28.8851,f={0,1,0,1}}}},
+	["Billboard_Skyline_038__screen"] = {size={0.6,26.6727,38.0744}, groups={{uv={0.7515,0.0015,0.247,0.247},s=-0.1298,ax="X"}}, panels={{g=1,o={0.3,0,0.0001},n={1,0,-0},r={-0,-0,-1},w=38.0745,h=26.6727,f={0,1,0,1}}}},
+	["Billboard_Skyline_039__screen"] = {size={41.6127,30.2989,0.6}, groups={{uv={0.7515,0.5015,0.247,0.247},s=-0.1821,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=41.6128,h=30.2989,f={0,1,0,1}}}},
+	["Billboard_Skyline_040__screen"] = {size={0.6,36.7167,47.3009}, groups={{uv={0.2515,0.7515,0.247,0.247},s=0.1515,ax="X"}}, panels={{g=1,o={0.3,0,0.0001},n={1,0,-0},r={-0,-0,-1},w=47.3009,h=36.7167,f={0,1,0,1}}}},
+	["Billboard_Skyline_041__screen"] = {size={0.6,47.573,19.6803}, groups={{uv={0.2515,0.2515,0.247,0.247},s=-0.1304,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=19.6803,h=47.5731,f={0,1,0,1}}}},
+	["Billboard_Skyline_042__screen"] = {size={0.6,18.1758,30.5049}, groups={{uv={0.2515,0.7515,0.247,0.247},s=0.0929,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=30.505,h=18.1758,f={0,1,0,1}}}},
+	["Billboard_Skyline_043__screen"] = {size={0.6,16.4686,29.5297}, groups={{uv={0.0015,0.2515,0.247,0.247},s=-0.1431,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=29.5297,h=16.4686,f={0,1,0,1}}}},
+	["Billboard_Skyline_044__screen"] = {size={24.4242,54.7239,0.6}, groups={{uv={0.2515,0.7515,0.247,0.247},s=0.1996,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=24.4243,h=54.7239,f={0,1,0,1}}}},
+	["Billboard_Skyline_045__screen"] = {size={0.6,21.1834,37.2395}, groups={{uv={0.0015,0.0015,0.247,0.247},s=0.1425,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=37.2395,h=21.1834,f={0,1,0,1}}}},
+	["Billboard_Skyline_046__screen"] = {size={30.8615,24.6207,0.6}, groups={{uv={0.2515,0.2515,0.247,0.247},s=0.1617,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=30.8615,h=24.6207,f={0,1,0,1}}}},
+	["Billboard_Skyline_047__screen"] = {size={0.6,42.8557,19.562}, groups={{uv={0.0015,0.7515,0.247,0.247},s=-0.1971,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=19.562,h=42.8557,f={0,1,0,1}}}},
+	["Billboard_Skyline_048__screen"] = {size={0.6,83.2493,27.4417}, groups={{uv={0.0015,0.5015,0.247,0.247},s=0.1219,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=27.4418,h=83.2493,f={0,1,0,1}}}},
+	["Billboard_Skyline_049__screen"] = {size={0.6,39.8918,14.6588}, groups={{uv={0.2515,0.2515,0.247,0.247},s=0.1751,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=14.6588,h=39.8918,f={0,1,0,1}}}},
+	["Billboard_Skyline_050__screen"] = {size={32.7453,22.2149,0.6}, groups={{uv={0.7515,0.5015,0.247,0.247},s=-0.1382,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=32.7454,h=22.2149,f={0,1,0,1}}}},
+	["Billboard_Skyline_051__screen"] = {size={0.6,17.8973,31.9058}, groups={{uv={0.0015,0.2515,0.247,0.247},s=0.1997,ax="X"}}, panels={{g=1,o={0.3,0,0.0001},n={1,0,-0},r={-0,-0,-1},w=31.9058,h=17.8973,f={0,1,0,1}}}},
+	["Billboard_Skyline_052__screen"] = {size={0.6,50.5767,22.9449}, groups={{uv={0.5015,0.5015,0.247,0.247},s=-0.1228,ax="Y"}}, panels={{g=1,o={0.3,-0.0001,-0.0002},n={1,-0,-0},r={-0,0,-1},w=22.9448,h=50.5767,f={0,1,0,1}}}},
+	["Billboard_Skyline_053__screen"] = {size={14.0539,42.9974,0.6}, groups={{uv={0.5015,0.0015,0.247,0.247},s=-0.0971,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=14.054,h=42.9974,f={0,1,0,1}}}},
+	["Billboard_Skyline_054__screen"] = {size={44.6477,37.9484,0.6}, groups={{uv={0.0015,0.5015,0.247,0.247},s=0.1856,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=44.6477,h=37.9484,f={0,1,0,1}}}},
+	["Billboard_Skyline_055__screen"] = {size={0.6,24.1253,36.9936}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.184,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=36.9937,h=24.1253,f={0,1,0,1}}}},
+	["Billboard_Skyline_056__screen"] = {size={41.5808,27.5365,0.6}, groups={{uv={0.2515,0.7515,0.247,0.247},s=-0.1076,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=41.5808,h=27.5364,f={0,1,0,1}}}},
+	["Billboard_Skyline_057__screen"] = {size={0.6,32.8435,40.4211}, groups={{uv={0.7515,0.2515,0.247,0.247},s=-0.1355,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,0,-1},w=40.4211,h=32.8435,f={0,1,0,1}}}},
+	["Billboard_Skyline_058__screen"] = {size={44.8487,29.6398,0.6}, groups={{uv={0.0015,0.7515,0.247,0.247},s=-0.1559,ax="X"}}, panels={{g=1,o={0.0002,-0,-0.3},n={0,0,-1},r={-1,0,0},w=44.8486,h=29.6398,f={0,1,0,1}}}},
+	["Billboard_Skyline_059__screen"] = {size={20.4694,54.8683,0.6}, groups={{uv={0.5015,0.0015,0.247,0.247},s=0.0806,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=20.4693,h=54.8683,f={0,1,0,1}}}},
+	["Billboard_Skyline_060__screen"] = {size={30.5443,21.4104,0.6}, groups={{uv={0.0015,0.5015,0.247,0.247},s=0.1853,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=30.5443,h=21.4104,f={0,1,0,1}}}},
+	["Billboard_Skyline_061__screen"] = {size={0.6,58.9907,26.3807}, groups={{uv={0.0015,0.0015,0.247,0.247},s=0.1008,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=26.3809,h=58.9907,f={0,1,0,1}}}},
+	["Billboard_Skyline_062__screen"] = {size={23.1514,53.7411,0.6}, groups={{uv={0.7515,0.5015,0.247,0.247},s=-0.1619,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=23.1514,h=53.7411,f={0,1,0,1}}}},
+	["Billboard_Skyline_063__screen"] = {size={14.9922,34.8193,0.6}, groups={{uv={0.7515,0.5015,0.247,0.247},s=0.1105,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=14.9922,h=34.8193,f={0,1,0,1}}}},
+	["Billboard_Skyline_064__screen"] = {size={32.2504,20.5092,0.6}, groups={{uv={0.7515,0.0015,0.247,0.247},s=0.1133,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=32.2505,h=20.5092,f={0,1,0,1}}}},
+	["Billboard_Skyline_065__screen"] = {size={45.5129,37.8164,0.6}, groups={{uv={0.7515,0.7515,0.247,0.247},s=-0.1691,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=45.5129,h=37.8164,f={0,1,0,1}}}},
+	["Billboard_Skyline_066__screen"] = {size={22.885,56.0225,0.6}, groups={{uv={0.5015,0.0015,0.247,0.247},s=0.12,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=22.885,h=56.0225,f={0,1,0,1}}}},
+	["Billboard_Skyline_067__screen"] = {size={49.3809,32.6897,0.6}, groups={{uv={0.5015,0.2515,0.247,0.247},s=0.0962,ax="X"}}, panels={{g=1,o={0.0001,-0,-0.3},n={0,0,-1},r={-1,0,0},w=49.3809,h=32.6897,f={0,1,0,1}}}},
+	["Billboard_Skyline_068__screen"] = {size={0.6,60.0637,20.9007}, groups={{uv={0.5015,0.5015,0.247,0.247},s=-0.1118,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=20.9008,h=60.0637,f={0,1,0,1}}}},
+	["Billboard_Skyline_069__screen"] = {size={31.2302,18.6215,0.6}, groups={{uv={0.0015,0.7515,0.247,0.247},s=0.1285,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=31.2302,h=18.6215,f={0,1,0,1}}}},
+	["Billboard_Skyline_070__screen"] = {size={26.8063,17.4513,0.6}, groups={{uv={0.2515,0.5015,0.247,0.247},s=0.1366,ax="X"}}, panels={{g=1,o={0.0001,-0,-0.3},n={0,0,-1},r={-1,0,0},w=26.8063,h=17.4513,f={0,1,0,1}}}},
+	["Billboard_Skyline_071__screen"] = {size={27.7419,22.8781,0.6}, groups={{uv={0.0015,0.7515,0.247,0.247},s=0.1353,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=27.7419,h=22.8781,f={0,1,0,1}}}},
+	["Billboard_Skyline_072__screen"] = {size={35.712,21.1443,0.6}, groups={{uv={0.5015,0.5015,0.247,0.247},s=-0.1119,ax="X"}}, panels={{g=1,o={0.0001,-0,-0.3},n={0,0,-1},r={-1,0,0},w=35.712,h=21.1443,f={0,1,0,1}}}},
+	["Billboard_Skyline_073__screen"] = {size={47.7108,36.6402,0.6}, groups={{uv={0.2515,0.2515,0.247,0.247},s=0.0874,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=47.7108,h=36.6402,f={0,1,0,1}}}},
+	["Billboard_Skyline_074__screen"] = {size={41.0969,28.2207,0.6}, groups={{uv={0.2515,0.2515,0.247,0.247},s=0.086,ax="X"}}, panels={{g=1,o={0.0001,-0,-0.3},n={0,0,-1},r={-1,0,0},w=41.0969,h=28.2207,f={0,1,0,1}}}},
+	["Billboard_Skyline_075__screen"] = {size={29.543,18.0826,0.6}, groups={{uv={0.7515,0.0015,0.247,0.247},s=0.1032,ax="X"}}, panels={{g=1,o={0.0001,-0.0001,-0.3},n={0,0,-1},r={-1,0,0},w=29.543,h=18.0825,f={0,1,0,1}}}},
+	["Billboard_Skyline_076__screen"] = {size={33.7328,27.0812,0.6}, groups={{uv={0.7515,0.0015,0.247,0.247},s=-0.1167,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=33.7328,h=27.0812,f={0,1,0,1}}}},
+	["Billboard_Skyline_077__screen"] = {size={20.8707,55.426,0.6}, groups={{uv={0.0015,0.2515,0.247,0.247},s=0.1084,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=20.8706,h=55.426,f={0,1,0,1}}}},
+	["Billboard_Skyline_078__screen"] = {size={0.6,40.3392,14.3068}, groups={{uv={0.7515,0.5015,0.247,0.247},s=0.1396,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,-0,-1},w=14.3069,h=40.3392,f={0,1,0,1}}}},
+	["Billboard_Skyline_079__screen"] = {size={46.2666,30.6701,0.6}, groups={{uv={0.5015,0.5015,0.247,0.247},s=0.1844,ax="X"}}, panels={{g=1,o={0.0001,-0,-0.3},n={0,0,-1},r={-1,0,0},w=46.2665,h=30.6701,f={0,1,0,1}}}},
+	["Billboard_Skyline_080__screen"] = {size={27.2033,22.1797,0.6}, groups={{uv={0.0015,0.0015,0.247,0.247},s=0.1689,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=27.2032,h=22.1797,f={0,1,0,1}}}},
+	["Billboard_Skyline_081__screen"] = {size={16.8404,44.4464,0.6}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.1068,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=16.8403,h=44.4464,f={0,1,0,1}}}},
+	["Billboard_Skyline_082__screen"] = {size={45.3097,35.4834,0.6}, groups={{uv={0.5015,0.5015,0.247,0.247},s=-0.1721,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=45.3097,h=35.4834,f={0,1,0,1}}}},
+	["Billboard_Skyline_083__screen"] = {size={35.389,23.0494,0.6}, groups={{uv={0.5015,0.2515,0.247,0.247},s=0.1285,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=35.389,h=23.0494,f={0,1,0,1}}}},
+	["Billboard_Skyline_084__screen"] = {size={18.7032,49.8891,0.6}, groups={{uv={0.5015,0.7515,0.247,0.247},s=0.1495,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=18.7032,h=49.8891,f={0,1,0,1}}}},
+	["Billboard_Skyline_085__screen"] = {size={21.1688,54.7641,0.6}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.1184,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=21.1688,h=54.7641,f={0,1,0,1}}}},
+	["Billboard_Skyline_086__screen"] = {size={19.4463,57.8061,0.6}, groups={{uv={0.5015,0.5015,0.247,0.247},s=0.1681,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=19.4462,h=57.8061,f={0,1,0,1}}}},
+	["Billboard_Skyline_087__screen"] = {size={27.7896,17.2891,0.6}, groups={{uv={0.7515,0.2515,0.247,0.247},s=-0.1084,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=27.7896,h=17.2891,f={0,1,0,1}}}},
+	["Billboard_Skyline_088__screen"] = {size={18.675,52.0665,0.6}, groups={{uv={0.5015,0.2515,0.247,0.247},s=-0.1542,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=18.675,h=52.0665,f={0,1,0,1}}}},
+	["Billboard_Skyline_089__screen"] = {size={36.7244,25.7839,0.6}, groups={{uv={0.2515,0.5015,0.247,0.247},s=0.12,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=36.7244,h=25.7839,f={0,1,0,1}}}},
+	["Billboard_Skyline_090__screen"] = {size={39.9309,31.8845,0.6}, groups={{uv={0.5015,0.5015,0.247,0.247},s=-0.1337,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=39.9309,h=31.8845,f={0,1,0,1}}}},
+	["Billboard_Skyline_091__screen"] = {size={44.3553,26.8145,0.6}, groups={{uv={0.7515,0.7515,0.247,0.247},s=-0.1999,ax="X"}}, panels={{g=1,o={0.0001,-0,-0.3},n={0,0,-1},r={-1,0,0},w=44.3553,h=26.8145,f={0,1,0,1}}}},
+	["Billboard_Skyline_092__screen"] = {size={30.0504,20.1434,0.6}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.0813,ax="X"}}, panels={{g=1,o={0.0001,-0,-0.3},n={0,0,-1},r={-1,0,0},w=30.0504,h=20.1434,f={0,1,0,1}}}},
+	["Billboard_Skyline_093__screen"] = {size={14.6801,31.5533,0.6}, groups={{uv={0.7515,0.7515,0.247,0.247},s=-0.1743,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=14.6801,h=31.5533,f={0,1,0,1}}}},
+	["Billboard_Skyline_094__screen"] = {size={31.866,17.6268,0.6}, groups={{uv={0.7515,0.0015,0.247,0.247},s=0.1554,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=31.866,h=17.6268,f={0,1,0,1}}}},
+	["Billboard_Skyline_095__screen"] = {size={16.9448,53.3413,0.6}, groups={{uv={0.7515,0.7515,0.247,0.247},s=-0.1136,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=16.9448,h=53.3413,f={0,1,0,1}}}},
+	["Billboard_Skyline_096__screen"] = {size={39.7667,23.8248,0.6}, groups={{uv={0.7515,0.5015,0.247,0.247},s=0.1409,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=39.7667,h=23.8248,f={0,1,0,1}}}},
+	["Billboard_Skyline_097__screen"] = {size={0.6,80.8562,27.8675}, groups={{uv={0.0015,0.0015,0.247,0.247},s=0.1166,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=27.8674,h=80.8563,f={0,1,0,1}}}},
+	["Billboard_Skyline_098__screen"] = {size={17.9004,49.3621,0.6}, groups={{uv={0.5015,0.2515,0.247,0.247},s=-0.1369,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=17.9004,h=49.3621,f={0,1,0,1}}}},
+	["Billboard_Skyline_099__screen"] = {size={0.6,18.3376,25.2771}, groups={{uv={0.5015,0.5015,0.247,0.247},s=-0.1792,ax="X"}}, panels={{g=1,o={0.3,0,0.0001},n={1,0,-0},r={-0,-0,-1},w=25.2771,h=18.3376,f={0,1,0,1}}}},
+	["Billboard_Skyline_100__screen"] = {size={23.6718,53.9864,0.6}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.0946,ax="Y"}}, panels={{g=1,o={0,-0,-0.3},n={0,0,-1},r={-1,0,0},w=23.6718,h=53.9864,f={0,1,0,1}}}},
+	["Billboard_Skyline_101__screen"] = {size={0.6,28.5158,43.9919}, groups={{uv={0.0015,0.0015,0.247,0.247},s=0.1778,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=43.9919,h=28.5158,f={0,1,0,1}}}},
+	["Billboard_Skyline_102__screen"] = {size={43.0149,34.3774,0.6}, groups={{uv={0.7515,0.7515,0.247,0.247},s=-0.1782,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=43.015,h=34.3774,f={0,1,0,1}}}},
+	["Billboard_Skyline_103__screen"] = {size={27.1954,59.7658,0.6}, groups={{uv={0.7515,0.7515,0.247,0.247},s=0.1647,ax="Y"}}, panels={{g=1,o={0,-0.0001,-0.3},n={0,0,-1},r={-1,0,0},w=27.1954,h=59.7658,f={0,1,0,1}}}},
+	["Billboard_Skyline_104__screen"] = {size={24.583,19.0667,0.6}, groups={{uv={0.5015,0.5015,0.247,0.247},s=-0.0968,ax="X"}}, panels={{g=1,o={0,-0,-0.3},n={0,0,-1},r={-1,0,0},w=24.5829,h=19.0667,f={0,1,0,1}}}},
+	["Billboard_Skyline_105__screen"] = {size={38.7227,31.4112,0.6}, groups={{uv={0.2515,0.5015,0.247,0.247},s=0.1786,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=38.7227,h=31.4112,f={0,1,0,1}}}},
+	["Billboard_Skyline_106__screen"] = {size={20.36,43.1483,0.6}, groups={{uv={0.7515,0.2515,0.247,0.247},s=0.1968,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=20.36,h=43.1483,f={0,1,0,1}}}},
+	["Billboard_Skyline_107__screen"] = {size={0.6,23.518,34.121}, groups={{uv={0.2515,0.5015,0.247,0.247},s=0.0887,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=34.1211,h=23.5181,f={0,1,0,1}}}},
+	["Billboard_Skyline_108__screen"] = {size={13.4223,33.0639,0.6}, groups={{uv={0.7515,0.7515,0.247,0.247},s=0.1212,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=13.4223,h=33.0639,f={0,1,0,1}}}},
+	["Billboard_Skyline_109__screen"] = {size={14.856,37.983,0.6}, groups={{uv={0.7515,0.2515,0.247,0.247},s=-0.1161,ax="Y"}}, panels={{g=1,o={0,-0,-0.3},n={0,0,-1},r={-1,0,0},w=14.856,h=37.983,f={0,1,0,1}}}},
+	["Billboard_Skyline_110__screen"] = {size={0.6,32.491,41.0312}, groups={{uv={0.2515,0.7515,0.247,0.247},s=0.1303,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,0,-1},w=41.0313,h=32.491,f={0,1,0,1}}}},
+	["Billboard_Skyline_111__screen"] = {size={33.8048,21.9199,0.6}, groups={{uv={0.0015,0.2515,0.247,0.247},s=0.1038,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=33.8048,h=21.9199,f={0,1,0,1}}}},
+	["Billboard_Skyline_112__screen"] = {size={32.2577,26.3745,0.6}, groups={{uv={0.5015,0.7515,0.247,0.247},s=0.158,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=32.2577,h=26.3745,f={0,1,0,1}}}},
+	["Billboard_Skyline_113__screen"] = {size={38.9192,25.2551,0.6}, groups={{uv={0.5015,0.5015,0.247,0.247},s=-0.0928,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=38.9192,h=25.2551,f={0,1,0,1}}}},
+	["Billboard_Skyline_114__screen"] = {size={36.2128,25.6133,0.6}, groups={{uv={0.5015,0.0015,0.247,0.247},s=-0.1403,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=36.2128,h=25.6133,f={0,1,0,1}}}},
+	["Billboard_Skyline_115__screen"] = {size={51.539,29.156,0.6}, groups={{uv={0.2515,0.5015,0.247,0.247},s=0.1263,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=51.539,h=29.156,f={0,1,0,1}}}},
+	["Billboard_Skyline_116__screen"] = {size={23.9157,51.4516,0.6}, groups={{uv={0.0015,0.5015,0.247,0.247},s=0.1828,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=23.9157,h=51.4516,f={0,1,0,1}}}},
+	["Billboard_Skyline_117__screen"] = {size={0.6,26.164,38.0425}, groups={{uv={0.7515,0.7515,0.247,0.247},s=0.1176,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=38.0425,h=26.164,f={0,1,0,1}}}},
+	["Billboard_Skyline_118__screen"] = {size={38.1764,30.446,0.6}, groups={{uv={0.5015,0.2515,0.247,0.247},s=0.149,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=38.1764,h=30.446,f={0,1,0,1}}}},
+	["Billboard_Skyline_119__screen"] = {size={32.1732,18.6868,0.6}, groups={{uv={0.7515,0.0015,0.247,0.247},s=0.1097,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=32.1732,h=18.6868,f={0,1,0,1}}}},
+	["Billboard_Skyline_120__screen"] = {size={0.6,17.5145,26.216}, groups={{uv={0.7515,0.2515,0.247,0.247},s=-0.169,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=26.2161,h=17.5146,f={0,1,0,1}}}},
+	["Billboard_Skyline_121__screen"] = {size={43.9404,28.5351,0.6}, groups={{uv={0.7515,0.0015,0.247,0.247},s=0.1281,ax="X"}}, panels={{g=1,o={-0,-0,-0.3},n={0,0,-1},r={-1,0,0},w=43.9404,h=28.535,f={0,1,0,1}}}},
+	["Billboard_Skyline_122__screen"] = {size={0.6,22.0028,33.2886}, groups={{uv={0.5015,0.7515,0.247,0.247},s=0.0852,ax="X"}}, panels={{g=1,o={-0.3,-0,-0.0002},n={-1,0,-0},r={-0,0,1},w=33.2886,h=22.0028,f={0,1,0,1}}}},
+	["Billboard_Skyline_123__screen"] = {size={33.7722,19.9666,0.6}, groups={{uv={0.7515,0.5015,0.247,0.247},s=0.1575,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=33.7722,h=19.9666,f={0,1,0,1}}}},
+	["Billboard_Skyline_124__screen"] = {size={31.0327,20.483,0.6}, groups={{uv={0.0015,0.2515,0.247,0.247},s=0.1015,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=31.0327,h=20.483,f={0,1,0,1}}}},
+	["Billboard_Skyline_125__screen"] = {size={0.6,83.3871,27.6373}, groups={{uv={0.0015,0.0015,0.247,0.247},s=-0.1978,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=27.6373,h=83.3871,f={0,1,0,1}}}},
+	["Billboard_Skyline_126__screen"] = {size={19.2625,49.376,0.6}, groups={{uv={0.0015,0.2515,0.247,0.247},s=-0.1456,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=19.2625,h=49.376,f={0,1,0,1}}}},
+	["Billboard_Skyline_127__screen"] = {size={0.6,29.3663,45.7967}, groups={{uv={0.0015,0.0015,0.247,0.247},s=-0.1963,ax="X"}}, panels={{g=1,o={-0.3,0,0.0001},n={-1,0,-0},r={-0,0,1},w=45.7968,h=29.3663,f={0,1,0,1}}}},
+	["Billboard_Skyline_128__screen"] = {size={23.0672,56.4371,0.6}, groups={{uv={0.2515,0.5015,0.247,0.247},s=-0.1508,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=23.0672,h=56.4371,f={0,1,0,1}}}},
+	["Billboard_Skyline_129__screen"] = {size={45.8207,38.2954,0.6}, groups={{uv={0.0015,0.7515,0.247,0.247},s=-0.1934,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=45.8207,h=38.2955,f={0,1,0,1}}}},
+	["Billboard_Skyline_130__screen"] = {size={23.5688,48.3611,0.6}, groups={{uv={0.2515,0.5015,0.247,0.247},s=-0.1088,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=23.5687,h=48.3611,f={0,1,0,1}}}},
+	["Billboard_Skyline_131__screen"] = {size={35.3994,25.5256,0.6}, groups={{uv={0.5015,0.7515,0.247,0.247},s=0.1622,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=35.3994,h=25.5256,f={0,1,0,1}}}},
+	["Billboard_Skyline_132__screen"] = {size={0.6,17.7417,28.617}, groups={{uv={0.0015,0.2515,0.247,0.247},s=0.086,ax="X"}}, panels={{g=1,o={-0.3,0,0.0001},n={-1,0,-0},r={-0,0,1},w=28.6169,h=17.7416,f={0,1,0,1}}}},
+	["Billboard_Skyline_133__screen"] = {size={31.9494,25.222,0.6}, groups={{uv={0.2515,0.5015,0.247,0.247},s=0.1781,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=31.9494,h=25.222,f={0,1,0,1}}}},
+	["Billboard_Skyline_134__screen"] = {size={22.9556,68.3727,0.6}, groups={{uv={0.5015,0.2515,0.247,0.247},s=0.1033,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=22.9556,h=68.3727,f={0,1,0,1}}}},
+	["Billboard_Skyline_135__screen"] = {size={37.6592,30.8722,0.6}, groups={{uv={0.2515,0.5015,0.247,0.247},s=0.1759,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=37.6592,h=30.8722,f={0,1,0,1}}}},
+	["Billboard_Skyline_136__screen"] = {size={0.6,20.4985,27.1509}, groups={{uv={0.2515,0.7515,0.247,0.247},s=-0.1933,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=27.1509,h=20.4985,f={0,1,0,1}}}},
+	["Billboard_Skyline_137__screen"] = {size={23.625,47.3597,0.6}, groups={{uv={0.7515,0.2515,0.247,0.247},s=0.117,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=23.6251,h=47.3597,f={0,1,0,1}}}},
+	["Billboard_Skyline_138__screen"] = {size={46.2595,33.5424,0.6}, groups={{uv={0.0015,0.7515,0.247,0.247},s=-0.1002,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=46.2595,h=33.5424,f={0,1,0,1}}}},
+	["Billboard_Skyline_139__screen"] = {size={46.5858,33.1405,0.6}, groups={{uv={0.5015,0.5015,0.247,0.247},s=-0.1361,ax="X"}}, panels={{g=1,o={-0.0001,-0,-0.3},n={0,0,-1},r={-1,0,0},w=46.5858,h=33.1405,f={0,1,0,1}}}},
+	["Billboard_Skyline_140__screen"] = {size={14.5383,30.6082,0.6}, groups={{uv={0.7515,0.5015,0.247,0.247},s=0.0957,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=14.5383,h=30.6082,f={0,1,0,1}}}},
+	["Billboard_Skyline_141__screen"] = {size={39.4027,27.4811,0.6}, groups={{uv={0.2515,0.7515,0.247,0.247},s=0.134,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=39.4027,h=27.4811,f={0,1,0,1}}}},
+	["Billboard_Skyline_142__screen"] = {size={17.8091,54.858,0.6}, groups={{uv={0.5015,0.2515,0.247,0.247},s=0.0887,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=17.8091,h=54.858,f={0,1,0,1}}}},
+	["Billboard_Skyline_143__screen"] = {size={0.6,17.2066,27.1052}, groups={{uv={0.7515,0.5015,0.247,0.247},s=0.1197,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=27.1052,h=17.2066,f={0,1,0,1}}}},
+	["Billboard_Skyline_144__screen"] = {size={37.8141,23.041,0.6}, groups={{uv={0.5015,0.2515,0.247,0.247},s=-0.1937,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=37.8141,h=23.041,f={0,1,0,1}}}},
+	["Billboard_Skyline_145__screen"] = {size={15.8799,48.3021,0.6}, groups={{uv={0.2515,0.0015,0.247,0.247},s=-0.1615,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=15.8799,h=48.3021,f={0,1,0,1}}}},
+	["Billboard_Skyline_146__screen"] = {size={49.071,39.7628,0.6}, groups={{uv={0.5015,0.5015,0.247,0.247},s=-0.197,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=49.071,h=39.7628,f={0,1,0,1}}}},
+	["Billboard_Skyline_147__screen"] = {size={37.4196,22.5986,0.6}, groups={{uv={0.5015,0.7515,0.247,0.247},s=-0.1791,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=37.4196,h=22.5986,f={0,1,0,1}}}},
+	["Billboard_Skyline_148__screen"] = {size={33.6223,21.3845,0.6}, groups={{uv={0.7515,0.2515,0.247,0.247},s=0.1281,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=33.6223,h=21.3845,f={0,1,0,1}}}},
+	["Billboard_Skyline_149__screen"] = {size={26.8458,69.8663,0.6}, groups={{uv={0.5015,0.5015,0.247,0.247},s=-0.1118,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=26.8458,h=69.8663,f={0,1,0,1}}}},
+	["Billboard_Skyline_150__screen"] = {size={36.0526,21.0171,0.6}, groups={{uv={0.5015,0.5015,0.247,0.247},s=-0.1761,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=36.0526,h=21.0171,f={0,1,0,1}}}},
+	["Billboard_Skyline_151__screen"] = {size={25.5622,55.4919,0.6}, groups={{uv={0.5015,0.0015,0.247,0.247},s=-0.1582,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=25.5623,h=55.4919,f={0,1,0,1}}}},
+	["Billboard_Skyline_152__screen"] = {size={0.6,24.4934,29.4646}, groups={{uv={0.7515,0.0015,0.247,0.247},s=0.1971,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=29.4646,h=24.4934,f={0,1,0,1}}}},
+	["Billboard_Skyline_153__screen"] = {size={15.8533,32.5049,0.6}, groups={{uv={0.7515,0.7515,0.247,0.247},s=0.1096,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=15.8533,h=32.5049,f={0,1,0,1}}}},
+	["Billboard_Skyline_154__screen"] = {size={31.4939,22.5874,0.6}, groups={{uv={0.2515,0.5015,0.247,0.247},s=0.1404,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=31.4939,h=22.5874,f={0,1,0,1}}}},
+	["Billboard_Skyline_155__screen"] = {size={0.6,54.4852,20.0357}, groups={{uv={0.0015,0.5015,0.247,0.247},s=0.0838,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=20.0356,h=54.4852,f={0,1,0,1}}}},
+	["Billboard_Skyline_156__screen"] = {size={49.2279,37.4508,0.6}, groups={{uv={0.7515,0.7515,0.247,0.247},s=-0.0858,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=49.2279,h=37.4508,f={0,1,0,1}}}},
+	["Billboard_Skyline_157__screen"] = {size={22.1516,52.2624,0.6}, groups={{uv={0.2515,0.0015,0.247,0.247},s=-0.138,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=22.1516,h=52.2623,f={0,1,0,1}}}},
+	["Billboard_Skyline_158__screen"] = {size={0.6,37.264,47.1054}, groups={{uv={0.2515,0.5015,0.247,0.247},s=0.0837,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=47.1055,h=37.264,f={0,1,0,1}}}},
+	["Billboard_Skyline_159__screen"] = {size={41.3893,28.3197,0.6}, groups={{uv={0.5015,0.5015,0.247,0.247},s=0.1247,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=41.3893,h=28.3198,f={0,1,0,1}}}},
+	["Billboard_Skyline_160__screen"] = {size={42.965,24.9928,0.6}, groups={{uv={0.0015,0.0015,0.247,0.247},s=-0.1545,ax="X"}}, panels={{g=1,o={-0.0001,-0,-0.3},n={0,0,-1},r={-1,0,0},w=42.965,h=24.9928,f={0,1,0,1}}}},
+	["Billboard_Skyline_161__screen"] = {size={52.2703,38.9083,0.6}, groups={{uv={0.5015,0.5015,0.247,0.247},s=-0.1421,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=52.2703,h=38.9083,f={0,1,0,1}}}},
+	["Billboard_Skyline_162__screen"] = {size={36.0021,29.5883,0.6}, groups={{uv={0.0015,0.0015,0.247,0.247},s=0.1157,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=36.0021,h=29.5883,f={0,1,0,1}}}},
+	["Billboard_Skyline_163__screen"] = {size={27.2143,15.0995,0.6}, groups={{uv={0.7515,0.0015,0.247,0.247},s=-0.1687,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=27.2144,h=15.0995,f={0,1,0,1}}}},
+	["Billboard_Skyline_164__screen"] = {size={28.2884,19.155,0.6}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.1166,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=28.2883,h=19.155,f={0,1,0,1}}}},
+	["Billboard_Skyline_165__screen"] = {size={22.1032,46.613,0.6}, groups={{uv={0.0015,0.7515,0.247,0.247},s=-0.1573,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=22.1031,h=46.613,f={0,1,0,1}}}},
+	["Billboard_Skyline_166__screen"] = {size={22.763,70.8348,0.6}, groups={{uv={0.7515,0.0015,0.247,0.247},s=0.1085,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=22.7629,h=70.8348,f={0,1,0,1}}}},
+	["Billboard_Skyline_167__screen"] = {size={0.6,60.9002,27.9901}, groups={{uv={0.0015,0.2515,0.247,0.247},s=0.1479,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=27.99,h=60.9003,f={0,1,0,1}}}},
+	["Billboard_Skyline_168__screen"] = {size={46.1405,33.9298,0.6}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.1473,ax="X"}}, panels={{g=1,o={-0.0002,-0.0001,-0.3},n={0,0,-1},r={-1,0,0},w=46.1404,h=33.9298,f={0,1,0,1}}}},
+	["Billboard_Skyline_169__screen"] = {size={29.2165,22.9615,0.6}, groups={{uv={0.7515,0.5015,0.247,0.247},s=-0.1601,ax="X"}}, panels={{g=1,o={-0.0002,-0,-0.3},n={0,0,-1},r={-1,0,0},w=29.2166,h=22.9615,f={0,1,0,1}}}},
+	["Billboard_Skyline_170__screen"] = {size={0.6,40.353,49.6508}, groups={{uv={0.5015,0.2515,0.247,0.247},s=-0.1332,ax="X"}}, panels={{g=1,o={-0.3,-0.0001,-0.0002},n={-1,0,-0},r={-0,0,1},w=49.6509,h=40.353,f={0,1,0,1}}}},
+	["Billboard_Skyline_171__screen"] = {size={31.0993,22.6106,0.6}, groups={{uv={0.0015,0.2515,0.247,0.247},s=-0.181,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=31.0994,h=22.6106,f={0,1,0,1}}}},
+	["Billboard_Skyline_172__screen"] = {size={0.6,24.8743,29.8622}, groups={{uv={0.7515,0.5015,0.247,0.247},s=0.1723,ax="X"}}, panels={{g=1,o={-0.3,0,0.0001},n={-1,-0,-0},r={-0,0,1},w=29.8622,h=24.8743,f={0,1,0,1}}}},
+	["Billboard_Skyline_173__screen"] = {size={16.096,49.356,0.6}, groups={{uv={0.7515,0.5015,0.247,0.247},s=0.1184,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=16.0959,h=49.356,f={0,1,0,1}}}},
+	["Billboard_Skyline_174__screen"] = {size={0.6,26.6309,33.9138}, groups={{uv={0.5015,0.5015,0.247,0.247},s=0.0983,ax="X"}}, panels={{g=1,o={-0.3,0,0.0001},n={-1,0,-0},r={-0,0,1},w=33.9138,h=26.6309,f={0,1,0,1}}}},
+	["Billboard_Skyline_175__screen"] = {size={0.6,44.1283,16.7838}, groups={{uv={0.7515,0.5015,0.247,0.247},s=-0.0961,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=16.7838,h=44.1283,f={0,1,0,1}}}},
+	["Billboard_Skyline_176__screen"] = {size={38.7609,32.893,0.6}, groups={{uv={0.0015,0.0015,0.247,0.247},s=-0.1818,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=38.7609,h=32.893,f={0,1,0,1}}}},
+	["Billboard_Skyline_177__screen"] = {size={0.6,20.1031,28.8604}, groups={{uv={0.7515,0.7515,0.247,0.247},s=-0.1039,ax="X"}}, panels={{g=1,o={-0.3,-0,-0.0001},n={-1,0,-0},r={-0,0,1},w=28.8604,h=20.103,f={0,1,0,1}}}},
+	["Billboard_Skyline_178__screen"] = {size={27.1815,19.3371,0.6}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.0879,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=27.1815,h=19.3371,f={0,1,0,1}}}},
+	["Billboard_Skyline_179__screen"] = {size={0.6,25.6715,44.5593}, groups={{uv={0.7515,0.0015,0.247,0.247},s=0.1249,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=44.5593,h=25.6715,f={0,1,0,1}}}},
+	["Billboard_Skyline_180__screen"] = {size={48.3828,31.2986,0.6}, groups={{uv={0.5015,0.7515,0.247,0.247},s=-0.0812,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=48.3828,h=31.2986,f={0,1,0,1}}}},
+	["Billboard_Skyline_181__screen"] = {size={0.6,20.2037,33.3713}, groups={{uv={0.2515,0.0015,0.247,0.247},s=-0.1087,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=33.3713,h=20.2037,f={0,1,0,1}}}},
+	["Billboard_Skyline_182__screen"] = {size={0.6,27.5607,33.419}, groups={{uv={0.2515,0.5015,0.247,0.247},s=-0.1994,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=33.419,h=27.5607,f={0,1,0,1}}}},
+	["Billboard_Skyline_183__screen"] = {size={24.8948,61.673,0.6}, groups={{uv={0.5015,0.0015,0.247,0.247},s=-0.1562,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=24.8948,h=61.673,f={0,1,0,1}}}},
+	["Billboard_Skyline_184__screen"] = {size={0.6,23.7405,27.9783}, groups={{uv={0.7515,0.7515,0.247,0.247},s=-0.103,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=27.9783,h=23.7405,f={0,1,0,1}}}},
+	["Billboard_Skyline_185__screen"] = {size={22.0689,45.0427,0.6}, groups={{uv={0.7515,0.2515,0.247,0.247},s=-0.1828,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=22.0688,h=45.0427,f={0,1,0,1}}}},
+	["Billboard_Skyline_186__screen"] = {size={0.6,22.3768,29.8611}, groups={{uv={0.2515,0.2515,0.247,0.247},s=0.1402,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=29.8611,h=22.3768,f={0,1,0,1}}}},
+	["Billboard_Skyline_187__screen"] = {size={0.6,72.6307,24.8825}, groups={{uv={0.7515,0.5015,0.247,0.247},s=0.1063,ax="Y"}}, panels={{g=1,o={-0.3,0,-0.0001},n={-1,-0,-0},r={-0,-0,1},w=24.8825,h=72.6307,f={0,1,0,1}}}},
+	["Billboard_Skyline_188__screen"] = {size={0.6,19.1121,28.3988}, groups={{uv={0.7515,0.2515,0.247,0.247},s=-0.1353,ax="X"}}, panels={{g=1,o={-0.3,-0,-0},n={-1,0,-0},r={-0,0,1},w=28.3988,h=19.1121,f={0,1,0,1}}}},
+	["Billboard_Skyline_189__screen"] = {size={0.6,23.6276,30.6448}, groups={{uv={0.7515,0.7515,0.247,0.247},s=-0.1667,ax="X"}}, panels={{g=1,o={-0.3,0,0.0001},n={-1,-0,-0},r={-0,0,1},w=30.6448,h=23.6276,f={0,1,0,1}}}},
+	["Billboard_Skyline_190__screen"] = {size={0.6,34.8963,14.128}, groups={{uv={0.2515,0.2515,0.247,0.247},s=-0.0971,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=14.1279,h=34.8963,f={0,1,0,1}}}},
+	["Billboard_Skyline_191__screen"] = {size={0.6,24.4661,32.8512}, groups={{uv={0.7515,0.2515,0.247,0.247},s=0.141,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=32.8512,h=24.4661,f={0,1,0,1}}}},
+	["Billboard_Skyline_192__screen"] = {size={34.6653,25.6971,0.6}, groups={{uv={0.2515,0.2515,0.247,0.247},s=-0.0842,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=34.6653,h=25.6971,f={0,1,0,1}}}},
+	["Billboard_Skyline_193__screen"] = {size={0.6,28.1686,40.0928}, groups={{uv={0.7515,0.0015,0.247,0.247},s=-0.1096,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=40.0928,h=28.1686,f={0,1,0,1}}}},
+	["Billboard_Skyline_194__screen"] = {size={0.6,65.955,20.9658}, groups={{uv={0.7515,0.7515,0.247,0.247},s=0.0933,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,-0,1},w=20.9657,h=65.955,f={0,1,0,1}}}},
+	["Billboard_Skyline_195__screen"] = {size={14.1128,28.3491,0.6}, groups={{uv={0.5015,0.5015,0.247,0.247},s=0.1936,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=14.1128,h=28.3491,f={0,1,0,1}}}},
+	["Billboard_Skyline_196__screen"] = {size={0.6,31.3363,40.2033}, groups={{uv={0.5015,0.5015,0.247,0.247},s=0.1491,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=40.2034,h=31.3363,f={0,1,0,1}}}},
+	["Billboard_Skyline_197__screen"] = {size={0.6,43.3275,17.2123}, groups={{uv={0.7515,0.0015,0.247,0.247},s=-0.1861,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=17.2123,h=43.3275,f={0,1,0,1}}}},
+	["Billboard_Skyline_198__screen"] = {size={34.7895,27.7419,0.6}, groups={{uv={0.5015,0.5015,0.247,0.247},s=-0.1809,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=34.7896,h=27.7419,f={0,1,0,1}}}},
+	["Billboard_Skyline_199__screen"] = {size={0.6,48.2373,18.8112}, groups={{uv={0.7515,0.7515,0.247,0.247},s=0.0806,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,-0,1},w=18.8112,h=48.2374,f={0,1,0,1}}}},
+	["Billboard_Skyline_200__screen"] = {size={0.6,24.528,29.9967}, groups={{uv={0.0015,0.5015,0.247,0.247},s=0.1823,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=29.9966,h=24.528,f={0,1,0,1}}}},
+	["Billboard_Skyline_201__screen"] = {size={0.6,32.3882,52.0427}, groups={{uv={0.7515,0.7515,0.247,0.247},s=0.1721,ax="X"}}, panels={{g=1,o={-0.3,-0.0001,-0.0002},n={-1,0,-0},r={-0,0,1},w=52.0427,h=32.3882,f={0,1,0,1}}}},
+	["Billboard_Skyline_202__screen"] = {size={0.6,49.9719,20.4389}, groups={{uv={0.5015,0.2515,0.247,0.247},s=-0.134,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,-0,1},w=20.439,h=49.9719,f={0,1,0,1}}}},
+	["Billboard_Skyline_203__screen"] = {size={13.8852,36.6329,0.6}, groups={{uv={0.7515,0.0015,0.247,0.247},s=0.1022,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=13.8853,h=36.6329,f={0,1,0,1}}}},
+	["Billboard_Skyline_204__screen"] = {size={0.6,30.6676,44.1567}, groups={{uv={0.2515,0.5015,0.247,0.247},s=-0.1475,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=44.1566,h=30.6676,f={0,1,0,1}}}},
+	["Billboard_Skyline_205__screen"] = {size={0.6,40.1229,16.2908}, groups={{uv={0.7515,0.0015,0.247,0.247},s=0.111,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=16.2908,h=40.1229,f={0,1,0,1}}}},
+	["Billboard_Skyline_206__screen"] = {size={0.6,23.7992,36.8899}, groups={{uv={0.0015,0.7515,0.247,0.247},s=0.1668,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=36.8899,h=23.7992,f={0,1,0,1}}}},
+	["Billboard_Skyline_207__screen"] = {size={36.1454,27.3566,0.6}, groups={{uv={0.0015,0.0015,0.247,0.247},s=0.1895,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=36.1454,h=27.3566,f={0,1,0,1}}}},
+	["Billboard_Skyline_208__screen"] = {size={0.6,53.9437,22.7099}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.0897,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,-0,1},w=22.7099,h=53.9437,f={0,1,0,1}}}},
+	["Billboard_Skyline_209__screen"] = {size={26.9018,20.6676,0.6}, groups={{uv={0.5015,0.2515,0.247,0.247},s=-0.184,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=26.9019,h=20.6676,f={0,1,0,1}}}},
+	["Billboard_Skyline_210__screen"] = {size={0.6,20.0918,33.7689}, groups={{uv={0.5015,0.0015,0.247,0.247},s=0.1201,ax="X"}}, panels={{g=1,o={-0.3,0,-0},n={-1,0,-0},r={-0,0,1},w=33.7689,h=20.0918,f={0,1,0,1}}}},
+	["Billboard_Skyline_211__screen"] = {size={0.6,60.1482,23.3917}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.1915,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=23.3917,h=60.1482,f={0,1,0,1}}}},
+	["Billboard_Skyline_212__screen"] = {size={0.6,37.7467,48.6114}, groups={{uv={0.0015,0.5015,0.247,0.247},s=0.1154,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=48.6114,h=37.7467,f={0,1,0,1}}}},
+	["Billboard_Skyline_213__screen"] = {size={27.9448,80.2835,0.6}, groups={{uv={0.2515,0.5015,0.247,0.247},s=0.1439,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=27.9448,h=80.2835,f={0,1,0,1}}}},
+	["Billboard_Skyline_214__screen"] = {size={0.6,20.2363,35.2095}, groups={{uv={0.0015,0.7515,0.247,0.247},s=0.1702,ax="X"}}, panels={{g=1,o={-0.3,0,-0},n={-1,0,-0},r={-0,0,1},w=35.2095,h=20.2363,f={0,1,0,1}}}},
+	["Billboard_Skyline_215__screen"] = {size={0.6,77.694,25.1297}, groups={{uv={0.7515,0.2515,0.247,0.247},s=0.1568,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=25.1297,h=77.694,f={0,1,0,1}}}},
+	["Billboard_Skyline_216__screen"] = {size={23.0319,66.9249,0.6}, groups={{uv={0.7515,0.5015,0.247,0.247},s=-0.0947,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=23.032,h=66.9249,f={0,1,0,1}}}},
+	["Billboard_Skyline_217__screen"] = {size={0.6,21.5465,36.8835}, groups={{uv={0.2515,0.2515,0.247,0.247},s=-0.167,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=36.8835,h=21.5464,f={0,1,0,1}}}},
+	["Billboard_Skyline_218__screen"] = {size={0.6,66.0351,22.3838}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.0912,ax="Y"}}, panels={{g=1,o={-0.3,-0,0},n={-1,-0,-0},r={-0,-0,1},w=22.3839,h=66.0351,f={0,1,0,1}}}},
+	["Billboard_Skyline_219__screen"] = {size={0.6,59.8222,24.5838}, groups={{uv={0.5015,0.0015,0.247,0.247},s=0.1308,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,-0,1},w=24.5839,h=59.8222,f={0,1,0,1}}}},
+	["Billboard_Skyline_220__screen"] = {size={18.8218,47.2433,0.6}, groups={{uv={0.7515,0.5015,0.247,0.247},s=0.0973,ax="Y"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=18.8218,h=47.2433,f={0,1,0,1}}}},
+	["Billboard_Skyline_221__screen"] = {size={0.6,21.9112,34.614}, groups={{uv={0.0015,0.7515,0.247,0.247},s=0.147,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=34.614,h=21.9113,f={0,1,0,1}}}},
+	["Billboard_Skyline_222__screen"] = {size={0.6,19.1779,30.9746}, groups={{uv={0.7515,0.7515,0.247,0.247},s=0.1546,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=30.9746,h=19.1779,f={0,1,0,1}}}},
+	["Billboard_Skyline_223__screen"] = {size={0.6,25.1006,43.8488}, groups={{uv={0.0015,0.5015,0.247,0.247},s=0.1004,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=43.8488,h=25.1006,f={0,1,0,1}}}},
+	["Billboard_Skyline_224__screen"] = {size={0.6,20.0812,35.4188}, groups={{uv={0.7515,0.5015,0.247,0.247},s=0.1123,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=35.4189,h=20.0812,f={0,1,0,1}}}},
+	["Billboard_Skyline_225__screen"] = {size={32.3072,20.6889,0.6}, groups={{uv={0.7515,0.7515,0.247,0.247},s=0.1953,ax="X"}}, panels={{g=1,o={0,0,-0.3},n={0,0,-1},r={-1,0,0},w=32.3071,h=20.6889,f={0,1,0,1}}}},
+	["Billboard_Skyline_226__screen"] = {size={0.6,18.5656,24.2849}, groups={{uv={0.7515,0.2515,0.247,0.247},s=-0.1915,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=24.2849,h=18.5656,f={0,1,0,1}}}},
+	["Billboard_Skyline_227__screen"] = {size={34.7029,27.2469,0.6}, groups={{uv={0.2515,0.7515,0.247,0.247},s=0.0896,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=34.7029,h=27.2469,f={0,1,0,1}}}},
+	["Billboard_Skyline_228__screen"] = {size={0.6,37.2295,50.6453}, groups={{uv={0.5015,0.2515,0.247,0.247},s=0.1739,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=50.6454,h=37.2295,f={0,1,0,1}}}},
+	["Billboard_Skyline_229__screen"] = {size={31.7891,20.6296,0.6}, groups={{uv={0.7515,0.2515,0.247,0.247},s=0.0963,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=31.7891,h=20.6295,f={0,1,0,1}}}},
+	["Billboard_Skyline_230__screen"] = {size={0.6,43.7558,17.8696}, groups={{uv={0.5015,0.5015,0.247,0.247},s=0.1876,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=17.8696,h=43.7558,f={0,1,0,1}}}},
+	["Billboard_Skyline_231__screen"] = {size={0.6,37.1845,16.4097}, groups={{uv={0.5015,0.2515,0.247,0.247},s=-0.1711,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=16.4097,h=37.1845,f={0,1,0,1}}}},
+	["Billboard_Skyline_232__screen"] = {size={0.6,35.2781,13.1995}, groups={{uv={0.2515,0.7515,0.247,0.247},s=-0.1105,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=13.1995,h=35.2781,f={0,1,0,1}}}},
+	["Billboard_Skyline_233__screen"] = {size={24.2035,66.3749,0.6}, groups={{uv={0.5015,0.0015,0.247,0.247},s=-0.0889,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=24.2036,h=66.3749,f={0,1,0,1}}}},
+	["Billboard_Skyline_234__screen"] = {size={0.6,41.7345,19.5904}, groups={{uv={0.0015,0.7515,0.247,0.247},s=-0.1557,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=19.5904,h=41.7344,f={0,1,0,1}}}},
+	["Billboard_Skyline_235__screen"] = {size={22.9567,73.1397,0.6}, groups={{uv={0.5015,0.7515,0.247,0.247},s=-0.1387,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=22.9568,h=73.1397,f={0,1,0,1}}}},
+	["Billboard_Skyline_236__screen"] = {size={0.6,64.1202,21.0278}, groups={{uv={0.7515,0.0015,0.247,0.247},s=0.1603,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,-0,1},w=21.0278,h=64.1202,f={0,1,0,1}}}},
+	["Billboard_Skyline_237__screen"] = {size={0.6,37.8581,46.1442}, groups={{uv={0.5015,0.0015,0.247,0.247},s=0.1386,ax="X"}}, panels={{g=1,o={-0.3,-0.0001,0},n={-1,0,-0},r={-0,0,1},w=46.1442,h=37.8581,f={0,1,0,1}}}},
+	["Billboard_Skyline_238__screen"] = {size={0.6,21.0241,33.8708}, groups={{uv={0.5015,0.7515,0.247,0.247},s=-0.1262,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=33.8707,h=21.024,f={0,1,0,1}}}},
+	["Billboard_Skyline_239__screen"] = {size={0.6,52.944,20.3717}, groups={{uv={0.5015,0.5015,0.247,0.247},s=-0.1198,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=20.3717,h=52.944,f={0,1,0,1}}}},
+	["Billboard_Skyline_240__screen"] = {size={34.569,22.2943,0.6}, groups={{uv={0.0015,0.0015,0.247,0.247},s=-0.1824,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=34.5691,h=22.2944,f={0,1,0,1}}}},
+	["Billboard_Skyline_241__screen"] = {size={0.6,22.2798,35.9944}, groups={{uv={0.7515,0.2515,0.247,0.247},s=-0.1444,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=35.9944,h=22.2798,f={0,1,0,1}}}},
+	["Billboard_Skyline_242__screen"] = {size={0.6,28.1755,44.1985}, groups={{uv={0.7515,0.7515,0.247,0.247},s=0.1305,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=44.1985,h=28.1755,f={0,1,0,1}}}},
+	["Billboard_Skyline_243__screen"] = {size={0.6,47.4794,19.4916}, groups={{uv={0.2515,0.5015,0.247,0.247},s=-0.1343,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=19.4916,h=47.4793,f={0,1,0,1}}}},
+	["Billboard_Skyline_244__screen"] = {size={0.6,31.533,50.3187}, groups={{uv={0.5015,0.0015,0.247,0.247},s=0.1122,ax="X"}}, panels={{g=1,o={-0.3,-0,0.0001},n={-1,0,-0},r={-0,0,1},w=50.3187,h=31.533,f={0,1,0,1}}}},
+	["Billboard_Skyline_245__screen"] = {size={0.6,65.6936,20.683}, groups={{uv={0.0015,0.2515,0.247,0.247},s=-0.0957,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,-0,1},w=20.683,h=65.6936,f={0,1,0,1}}}},
+	["Billboard_Skyline_246__screen"] = {size={0.6,28.947,44.4975}, groups={{uv={0.5015,0.2515,0.247,0.247},s=0.1564,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=44.4975,h=28.947,f={0,1,0,1}}}},
+	["Billboard_Skyline_247__screen"] = {size={0.6,20.0734,29.8533}, groups={{uv={0.0015,0.7515,0.247,0.247},s=-0.1054,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=29.8533,h=20.0734,f={0,1,0,1}}}},
+	["Billboard_Skyline_248__screen"] = {size={0.6,17.5249,29.7151}, groups={{uv={0.7515,0.2515,0.247,0.247},s=0.1945,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=29.7151,h=17.525,f={0,1,0,1}}}},
+	["Billboard_Skyline_249__screen"] = {size={0.6,30.8091,15.2326}, groups={{uv={0.5015,0.7515,0.247,0.247},s=0.0865,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=15.2327,h=30.8091,f={0,1,0,1}}}},
+	["Billboard_Skyline_250__screen"] = {size={0.6,63.8811,23.3578}, groups={{uv={0.2515,0.5015,0.247,0.247},s=0.1053,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=23.3578,h=63.8811,f={0,1,0,1}}}},
+	["Billboard_Skyline_251__screen"] = {size={0.6,55.4523,21.1094}, groups={{uv={0.7515,0.2515,0.247,0.247},s=-0.0835,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=21.1094,h=55.4523,f={0,1,0,1}}}},
+	["Billboard_Skyline_252__screen"] = {size={45.8102,28.4673,0.6}, groups={{uv={0.0015,0.7515,0.247,0.247},s=0.0962,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=45.8102,h=28.4673,f={0,1,0,1}}}},
+	["Billboard_Skyline_253__screen"] = {size={0.6,27.7916,36.3491}, groups={{uv={0.2515,0.7515,0.247,0.247},s=0.1063,ax="X"}}, panels={{g=1,o={-0.3,0,0.0001},n={-1,0,-0},r={-0,0,1},w=36.3491,h=27.7916,f={0,1,0,1}}}},
+	["Billboard_Skyline_254__screen"] = {size={0.6,50.83,18.3459}, groups={{uv={0.5015,0.2515,0.247,0.247},s=0.1689,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,-0,1},w=18.3459,h=50.83,f={0,1,0,1}}}},
+	["Billboard_Skyline_255__screen"] = {size={0.6,22.1253,28.9062}, groups={{uv={0.5015,0.2515,0.247,0.247},s=0.1733,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=28.9061,h=22.1253,f={0,1,0,1}}}},
+	["Billboard_Skyline_256__screen"] = {size={0.6,28.2003,36.9698}, groups={{uv={0.2515,0.2515,0.247,0.247},s=0.1876,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=36.9698,h=28.2003,f={0,1,0,1}}}},
+	["Billboard_Skyline_257__screen"] = {size={45.4096,26.0009,0.6}, groups={{uv={0.0015,0.5015,0.247,0.247},s=0.1323,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=45.4095,h=26.0009,f={0,1,0,1}}}},
+	["Billboard_Skyline_258__screen"] = {size={0.6,51.3776,19.4356}, groups={{uv={0.5015,0.7515,0.247,0.247},s=0.1112,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=19.4355,h=51.3776,f={0,1,0,1}}}},
+	["Billboard_Skyline_259__screen"] = {size={27.9933,80.1093,0.6}, groups={{uv={0.5015,0.0015,0.247,0.247},s=-0.0967,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=27.9933,h=80.1093,f={0,1,0,1}}}},
+	["Billboard_Skyline_260__screen"] = {size={0.6,44.149,22.0553}, groups={{uv={0.7515,0.7515,0.247,0.247},s=0.1245,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=22.0553,h=44.149,f={0,1,0,1}}}},
+	["Billboard_Skyline_261__screen"] = {size={0.6,37.7661,46.4894}, groups={{uv={0.2515,0.2515,0.247,0.247},s=-0.0943,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=46.4894,h=37.7661,f={0,1,0,1}}}},
+	["Billboard_Skyline_262__screen"] = {size={0.6,42.6124,18.1791}, groups={{uv={0.7515,0.7515,0.247,0.247},s=0.1079,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=18.1791,h=42.6125,f={0,1,0,1}}}},
+	["Billboard_Skyline_263__screen"] = {size={0.6,24.915,39.659}, groups={{uv={0.0015,0.7515,0.247,0.247},s=-0.1009,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=39.6591,h=24.915,f={0,1,0,1}}}},
+	["Billboard_Skyline_264__screen"] = {size={0.6,22.4357,28.1524}, groups={{uv={0.7515,0.5015,0.247,0.247},s=-0.0916,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=28.1523,h=22.4357,f={0,1,0,1}}}},
+	["Billboard_Skyline_265__screen"] = {size={31.8373,21.0278,0.6}, groups={{uv={0.5015,0.0015,0.247,0.247},s=-0.1396,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=31.8374,h=21.0278,f={0,1,0,1}}}},
+	["Billboard_Skyline_266__screen"] = {size={0.6,29.8415,47.6346}, groups={{uv={0.0015,0.2515,0.247,0.247},s=-0.1098,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=47.6346,h=29.8416,f={0,1,0,1}}}},
+	["Billboard_Skyline_267__screen"] = {size={0.6,20.5592,36.0786}, groups={{uv={0.2515,0.2515,0.247,0.247},s=0.1112,ax="X"}}, panels={{g=1,o={-0.3,0,0.0001},n={-1,0,-0},r={-0,0,1},w=36.0786,h=20.5592,f={0,1,0,1}}}},
+	["Billboard_Skyline_268__screen"] = {size={0.6,61.5168,26.2012}, groups={{uv={0.0015,0.2515,0.247,0.247},s=-0.1797,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=26.2012,h=61.5168,f={0,1,0,1}}}},
+	["Billboard_Skyline_269__screen"] = {size={20.9273,62.8701,0.6}, groups={{uv={0.7515,0.0015,0.247,0.247},s=0.169,ax="Y"}}, panels={{g=1,o={-0.0002,-0,0.3},n={-0,0,1},r={1,-0,0},w=20.9272,h=62.8701,f={0,1,0,1}}}},
+	["Billboard_Skyline_270__screen"] = {size={0.6,35.6288,16.7381}, groups={{uv={0.0015,0.0015,0.247,0.247},s=0.1842,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=16.7382,h=35.6288,f={0,1,0,1}}}},
+	["Billboard_Skyline_271__screen"] = {size={0.6,57.6864,20.0594}, groups={{uv={0.2515,0.7515,0.247,0.247},s=0.1523,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=20.0593,h=57.6864,f={0,1,0,1}}}},
+	["Billboard_Skyline_272__screen"] = {size={0.6,63.7104,21.9767}, groups={{uv={0.0015,0.0015,0.247,0.247},s=-0.1156,ax="Y"}}, panels={{g=1,o={-0.3,-0.0001,0.0001},n={-1,-0,-0},r={-0,0,1},w=21.9767,h=63.7104,f={0,1,0,1}}}},
+	["Billboard_Skyline_273__screen"] = {size={0.6,23.678,28.2817}, groups={{uv={0.0015,0.2515,0.247,0.247},s=0.1225,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=28.2817,h=23.678,f={0,1,0,1}}}},
+	["Billboard_Skyline_274__screen"] = {size={0.6,20.0597,29.427}, groups={{uv={0.5015,0.7515,0.247,0.247},s=0.1812,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=29.427,h=20.0596,f={0,1,0,1}}}},
+	["Billboard_Skyline_275__screen"] = {size={0.6,26.9273,36.2166}, groups={{uv={0.5015,0.5015,0.247,0.247},s=-0.193,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=36.2166,h=26.9273,f={0,1,0,1}}}},
+	["Billboard_Skyline_276__screen"] = {size={22.9434,68.2388,0.6}, groups={{uv={0.0015,0.7515,0.247,0.247},s=-0.1335,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=22.9434,h=68.2388,f={0,1,0,1}}}},
+	["Billboard_Skyline_277__screen"] = {size={0.6,22.308,37.527}, groups={{uv={0.5015,0.2515,0.247,0.247},s=-0.126,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=37.527,h=22.308,f={0,1,0,1}}}},
+	["Billboard_Skyline_278__screen"] = {size={39.2745,26.5171,0.6}, groups={{uv={0.5015,0.0015,0.247,0.247},s=-0.1283,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=39.2744,h=26.5171,f={0,1,0,1}}}},
+	["Billboard_Skyline_279__screen"] = {size={0.6,23.9366,30.4382}, groups={{uv={0.7515,0.5015,0.247,0.247},s=0.1091,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=30.4382,h=23.9366,f={0,1,0,1}}}},
+	["Billboard_Skyline_280__screen"] = {size={23.3678,55.3763,0.6}, groups={{uv={0.7515,0.5015,0.247,0.247},s=0.1503,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=23.3679,h=55.3763,f={0,1,0,1}}}},
+	["Billboard_Skyline_281__screen"] = {size={0.6,28.226,34.4763}, groups={{uv={0.7515,0.2515,0.247,0.247},s=0.1433,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=34.4763,h=28.226,f={0,1,0,1}}}},
+	["Billboard_Skyline_282__screen"] = {size={0.6,32.1655,42.0821}, groups={{uv={0.2515,0.5015,0.247,0.247},s=-0.1506,ax="X"}}, panels={{g=1,o={-0.3,-0,0.0002},n={-1,0,-0},r={-0,0,1},w=42.082,h=32.1655,f={0,1,0,1}}}},
+	["Billboard_Skyline_283__screen"] = {size={0.6,19.2692,32.7159}, groups={{uv={0.2515,0.2515,0.247,0.247},s=0.093,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=32.7159,h=19.2692,f={0,1,0,1}}}},
+	["Billboard_Skyline_284__screen"] = {size={36.8593,27.8395,0.6}, groups={{uv={0.2515,0.5015,0.247,0.247},s=0.153,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=36.8594,h=27.8394,f={0,1,0,1}}}},
+	["Billboard_Skyline_285__screen"] = {size={0.6,49.3263,19.2479}, groups={{uv={0.5015,0.5015,0.247,0.247},s=0.1173,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=19.2478,h=49.3263,f={0,1,0,1}}}},
+	["Billboard_Skyline_286__screen"] = {size={28.1654,19.8669,0.6}, groups={{uv={0.0015,0.2515,0.247,0.247},s=-0.1063,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=28.1655,h=19.8669,f={0,1,0,1}}}},
+	["Billboard_Skyline_287__screen"] = {size={0.6,21.7751,28.0232}, groups={{uv={0.5015,0.7515,0.247,0.247},s=0.1842,ax="X"}}, panels={{g=1,o={-0.3,-0,0.0001},n={-1,0,-0},r={-0,0,1},w=28.0232,h=21.7751,f={0,1,0,1}}}},
+	["Billboard_Skyline_288__screen"] = {size={0.6,66.0736,22.0712}, groups={{uv={0.2515,0.2515,0.247,0.247},s=-0.1211,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=22.0713,h=66.0736,f={0,1,0,1}}}},
+	["Billboard_Skyline_289__screen"] = {size={45.7736,34.81,0.6}, groups={{uv={0.2515,0.2515,0.247,0.247},s=-0.1461,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=45.7737,h=34.81,f={0,1,0,1}}}},
+	["Billboard_Skyline_290__screen"] = {size={0.6,45.6704,14.4652}, groups={{uv={0.7515,0.2515,0.247,0.247},s=-0.1156,ax="Y"}}, panels={{g=1,o={-0.3,-0.0001,0.0002},n={-1,-0,-0},r={-0,0,1},w=14.4651,h=45.6704,f={0,1,0,1}}}},
+	["Billboard_Skyline_291__screen"] = {size={0.6,33.0521,48.1109}, groups={{uv={0.5015,0.5015,0.247,0.247},s=0.1102,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=48.1108,h=33.0521,f={0,1,0,1}}}},
+	["Billboard_Skyline_292__screen"] = {size={40.6722,26.5135,0.6}, groups={{uv={0.0015,0.7515,0.247,0.247},s=-0.1156,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=40.6721,h=26.5135,f={0,1,0,1}}}},
+	["Billboard_Skyline_293__screen"] = {size={49.2075,33.8809,0.6}, groups={{uv={0.5015,0.0015,0.247,0.247},s=-0.1541,ax="X"}}, panels={{g=1,o={-0.0001,-0,0.3},n={-0,0,1},r={1,0,0},w=49.2075,h=33.8809,f={0,1,0,1}}}},
+	["Billboard_Skyline_294__screen"] = {size={49.1712,34.0987,0.6}, groups={{uv={0.7515,0.5015,0.247,0.247},s=-0.1005,ax="X"}}, panels={{g=1,o={-0.0001,-0.0001,0.3},n={-0,0,1},r={1,0,0},w=49.1711,h=34.0987,f={0,1,0,1}}}},
+	["Billboard_Skyline_295__screen"] = {size={26.2382,19.6739,0.6}, groups={{uv={0.7515,0.7515,0.247,0.247},s=0.1482,ax="X"}}, panels={{g=1,o={-0.0001,-0,0.3},n={-0,0,1},r={1,0,0},w=26.2382,h=19.6739,f={0,1,0,1}}}},
+	["Billboard_Skyline_296__screen"] = {size={23.1379,69.2193,0.6}, groups={{uv={0.0015,0.0015,0.247,0.247},s=-0.1379,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=23.1379,h=69.2193,f={0,1,0,1}}}},
+	["Billboard_Skyline_297__screen"] = {size={0.6,61.8144,20.9995}, groups={{uv={0.2515,0.0015,0.247,0.247},s=0.08,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=20.9995,h=61.8144,f={0,1,0,1}}}},
+	["Billboard_Skyline_298__screen"] = {size={34.4339,27.3373,0.6}, groups={{uv={0.5015,0.0015,0.247,0.247},s=-0.1472,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=34.4339,h=27.3372,f={0,1,0,1}}}},
+	["Billboard_Skyline_299__screen"] = {size={0.6,47.3763,16.0708}, groups={{uv={0.0015,0.0015,0.247,0.247},s=-0.1225,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=16.0708,h=47.3763,f={0,1,0,1}}}},
+	["Billboard_Skyline_300__screen"] = {size={41.9098,28.6785,0.6}, groups={{uv={0.2515,0.7515,0.247,0.247},s=0.1967,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=41.9098,h=28.6785,f={0,1,0,1}}}},
+	["Billboard_Skyline_301__screen"] = {size={43.1824,29.9829,0.6}, groups={{uv={0.5015,0.2515,0.247,0.247},s=0.0816,ax="X"}}, panels={{g=1,o={-0.0001,-0.0001,0.3},n={-0,0,1},r={1,0,0},w=43.1824,h=29.9828,f={0,1,0,1}}}},
+	["Billboard_Skyline_302__screen"] = {size={35.091,20.9023,0.6}, groups={{uv={0.2515,0.7515,0.247,0.247},s=-0.0818,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=35.0911,h=20.9023,f={0,1,0,1}}}},
+	["Billboard_Skyline_303__screen"] = {size={26.3163,69.321,0.6}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.163,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=26.3164,h=69.321,f={0,1,0,1}}}},
+	["Billboard_Skyline_304__screen"] = {size={38.5885,22.6273,0.6}, groups={{uv={0.0015,0.2515,0.247,0.247},s=-0.1503,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=38.5885,h=22.6273,f={0,1,0,1}}}},
+	["Billboard_Skyline_305__screen"] = {size={25.6988,14.4212,0.6}, groups={{uv={0.0015,0.5015,0.247,0.247},s=0.1428,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=25.6989,h=14.4212,f={0,1,0,1}}}},
+	["Billboard_Skyline_306__screen"] = {size={36.0296,21.8886,0.6}, groups={{uv={0.7515,0.2515,0.247,0.247},s=-0.1503,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=36.0295,h=21.8886,f={0,1,0,1}}}},
+	["Billboard_Skyline_307__screen"] = {size={0.6,24.9403,31.1699}, groups={{uv={0.0015,0.5015,0.247,0.247},s=0.1406,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=31.1699,h=24.9402,f={0,1,0,1}}}},
+	["Billboard_Skyline_308__screen"] = {size={19.5696,49.8213,0.6}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.1638,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=19.5696,h=49.8213,f={0,1,0,1}}}},
+	["Billboard_Skyline_309__screen"] = {size={0.6,26.0487,34.4179}, groups={{uv={0.5015,0.0015,0.247,0.247},s=0.1414,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=34.418,h=26.0487,f={0,1,0,1}}}},
+	["Billboard_Skyline_310__screen"] = {size={25.7472,70.7111,0.6}, groups={{uv={0.0015,0.5015,0.247,0.247},s=0.0973,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=25.7472,h=70.7111,f={0,1,0,1}}}},
+	["Billboard_Skyline_311__screen"] = {size={13.787,28.1044,0.6}, groups={{uv={0.0015,0.2515,0.247,0.247},s=0.1279,ax="Y"}}, panels={{g=1,o={-0.0001,-0,0.3},n={-0,0,1},r={1,-0,0},w=13.787,h=28.1044,f={0,1,0,1}}}},
+	["Billboard_Skyline_312__screen"] = {size={45.1836,36.1951,0.6}, groups={{uv={0.2515,0.2515,0.247,0.247},s=-0.1533,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=45.1836,h=36.1951,f={0,1,0,1}}}},
+	["Billboard_Skyline_313__screen"] = {size={0.6,74.0234,27.7347}, groups={{uv={0.0015,0.2515,0.247,0.247},s=-0.1899,ax="Y"}}, panels={{g=1,o={-0.3,-0,0.0002},n={-1,-0,-0},r={-0,0,1},w=27.7346,h=74.0233,f={0,1,0,1}}}},
+	["Billboard_Skyline_314__screen"] = {size={34.2856,25.5409,0.6}, groups={{uv={0.0015,0.5015,0.247,0.247},s=0.1096,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=34.2855,h=25.5409,f={0,1,0,1}}}},
+	["Billboard_Skyline_315__screen"] = {size={28.0458,17.1585,0.6}, groups={{uv={0.5015,0.0015,0.247,0.247},s=-0.1598,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=28.0458,h=17.1585,f={0,1,0,1}}}},
+	["Billboard_Skyline_316__screen"] = {size={0.6,49.5885,18.8078}, groups={{uv={0.7515,0.7515,0.247,0.247},s=0.1756,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,-0,1},w=18.8079,h=49.5885,f={0,1,0,1}}}},
+	["Billboard_Skyline_317__screen"] = {size={22.5214,70.1309,0.6}, groups={{uv={0.7515,0.5015,0.247,0.247},s=0.1749,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=22.5214,h=70.1309,f={0,1,0,1}}}},
+	["Billboard_Skyline_318__screen"] = {size={44.0079,37.0805,0.6}, groups={{uv={0.2515,0.0015,0.247,0.247},s=-0.1455,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=44.0079,h=37.0805,f={0,1,0,1}}}},
+	["Billboard_Skyline_319__screen"] = {size={0.6,44.6778,15.7787}, groups={{uv={0.5015,0.7515,0.247,0.247},s=-0.0877,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=15.7787,h=44.6778,f={0,1,0,1}}}},
+	["Billboard_Skyline_320__screen"] = {size={30.727,21.0722,0.6}, groups={{uv={0.7515,0.2515,0.247,0.247},s=-0.1869,ax="X"}}, panels={{g=1,o={-0.0001,-0.0001,0.3},n={-0,0,1},r={1,-0,0},w=30.7269,h=21.0721,f={0,1,0,1}}}},
+	["Billboard_Skyline_321__screen"] = {size={0.6,25.6533,30.8443}, groups={{uv={0.5015,0.5015,0.247,0.247},s=0.1647,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=30.8442,h=25.6533,f={0,1,0,1}}}},
+	["Billboard_Skyline_322__screen"] = {size={24.2956,72.9935,0.6}, groups={{uv={0.2515,0.0015,0.247,0.247},s=0.0854,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=24.2957,h=72.9935,f={0,1,0,1}}}},
+	["Billboard_Skyline_323__screen"] = {size={40.4963,30.1293,0.6}, groups={{uv={0.2515,0.5015,0.247,0.247},s=-0.1411,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=40.4962,h=30.1293,f={0,1,0,1}}}},
+	["Billboard_Skyline_324__screen"] = {size={24.5026,59.6888,0.6}, groups={{uv={0.5015,0.0015,0.247,0.247},s=-0.1888,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=24.5026,h=59.6888,f={0,1,0,1}}}},
+	["Billboard_Skyline_325__screen"] = {size={0.6,76.7198,25.6329}, groups={{uv={0.7515,0.7515,0.247,0.247},s=0.1063,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,-0,1},w=25.6329,h=76.7198,f={0,1,0,1}}}},
+	["Billboard_Skyline_326__screen"] = {size={18.8461,43.6002,0.6}, groups={{uv={0.2515,0.5015,0.247,0.247},s=0.0809,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=18.8462,h=43.6002,f={0,1,0,1}}}},
+	["Billboard_Skyline_327__screen"] = {size={50.6843,31.9471,0.6}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.1521,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=50.6843,h=31.9471,f={0,1,0,1}}}},
+	["Billboard_Skyline_328__screen"] = {size={0.6,32.5163,51.1963}, groups={{uv={0.5015,0.0015,0.247,0.247},s=0.1506,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=51.1963,h=32.5163,f={0,1,0,1}}}},
+	["Billboard_Skyline_329__screen"] = {size={44.6546,33.6756,0.6}, groups={{uv={0.2515,0.5015,0.247,0.247},s=0.1159,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=44.6545,h=33.6756,f={0,1,0,1}}}},
+	["Billboard_Skyline_330__screen"] = {size={34.5063,24.7343,0.6}, groups={{uv={0.2515,0.2515,0.247,0.247},s=-0.1763,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=34.5063,h=24.7343,f={0,1,0,1}}}},
+	["Billboard_Skyline_331__screen"] = {size={0.6,31.2768,44.4342}, groups={{uv={0.5015,0.7515,0.247,0.247},s=0.1246,ax="X"}}, panels={{g=1,o={-0.3,-0,0},n={-1,0,-0},r={-0,0,1},w=44.4341,h=31.2768,f={0,1,0,1}}}},
+	["Billboard_Skyline_332__screen"] = {size={30.2211,23.509,0.6}, groups={{uv={0.0015,0.7515,0.247,0.247},s=-0.1186,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=30.2212,h=23.509,f={0,1,0,1}}}},
+	["Billboard_Skyline_333__screen"] = {size={0.6,19.2961,25.5529}, groups={{uv={0.2515,0.0015,0.247,0.247},s=-0.1191,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=25.553,h=19.2961,f={0,1,0,1}}}},
+	["Billboard_Skyline_334__screen"] = {size={26.772,17.8052,0.6}, groups={{uv={0.2515,0.5015,0.247,0.247},s=0.1312,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=26.772,h=17.8052,f={0,1,0,1}}}},
+	["Billboard_Skyline_335__screen"] = {size={14.3088,29.9864,0.6}, groups={{uv={0.5015,0.7515,0.247,0.247},s=0.1437,ax="Y"}}, panels={{g=1,o={-0.0002,-0,0.3},n={-0,0,1},r={1,-0,0},w=14.3088,h=29.9864,f={0,1,0,1}}}},
+	["Billboard_Skyline_336__screen"] = {size={23.0057,66.7216,0.6}, groups={{uv={0.7515,0.7515,0.247,0.247},s=-0.195,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=23.0059,h=66.7216,f={0,1,0,1}}}},
+	["Billboard_Skyline_337__screen"] = {size={0.6,56.6226,28.0997}, groups={{uv={0.2515,0.2515,0.247,0.247},s=0.1336,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=28.0996,h=56.6226,f={0,1,0,1}}}},
+	["Billboard_Skyline_338__screen"] = {size={15.0878,34.4386,0.6}, groups={{uv={0.0015,0.0015,0.247,0.247},s=0.1734,ax="Y"}}, panels={{g=1,o={-0.0002,-0,0.3},n={-0,0,1},r={1,0,0},w=15.0876,h=34.4386,f={0,1,0,1}}}},
+	["Billboard_Skyline_339__screen"] = {size={0.6,33.8106,43.3155}, groups={{uv={0.5015,0.7515,0.247,0.247},s=-0.0953,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=43.3156,h=33.8106,f={0,1,0,1}}}},
+	["Billboard_Skyline_340__screen"] = {size={24.5943,53.2387,0.6}, groups={{uv={0.0015,0.2515,0.247,0.247},s=-0.1129,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=24.5943,h=53.2387,f={0,1,0,1}}}},
+	["Billboard_Skyline_341__screen"] = {size={33.0831,26.1442,0.6}, groups={{uv={0.2515,0.5015,0.247,0.247},s=-0.1393,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=33.0831,h=26.1442,f={0,1,0,1}}}},
+	["Billboard_Skyline_342__screen"] = {size={41.2599,24.74,0.6}, groups={{uv={0.7515,0.2515,0.247,0.247},s=0.1912,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=41.2599,h=24.74,f={0,1,0,1}}}},
+	["Billboard_Skyline_343__screen"] = {size={0.6,36.1492,42.7171}, groups={{uv={0.5015,0.0015,0.247,0.247},s=-0.0847,ax="X"}}, panels={{g=1,o={-0.3,-0,0.0002},n={-1,0,-0},r={-0,0,1},w=42.717,h=36.1492,f={0,1,0,1}}}},
+	["Billboard_Skyline_344__screen"] = {size={23.2111,67.4848,0.6}, groups={{uv={0.7515,0.7515,0.247,0.247},s=0.112,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=23.2111,h=67.4848,f={0,1,0,1}}}},
+	["Billboard_Skyline_345__screen"] = {size={0.6,61.96,21.6946}, groups={{uv={0.5015,0.0015,0.247,0.247},s=0.1144,ax="Y"}}, panels={{g=1,o={-0.3,0,0},n={-1,-0,-0},r={-0,0,1},w=21.6946,h=61.96,f={0,1,0,1}}}},
+	["Billboard_Skyline_346__screen"] = {size={28.3412,20.0926,0.6}, groups={{uv={0.0015,0.7515,0.247,0.247},s=-0.0865,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=28.3412,h=20.0927,f={0,1,0,1}}}},
+	["Billboard_Skyline_347__screen"] = {size={45.4944,27.9384,0.6}, groups={{uv={0.2515,0.5015,0.247,0.247},s=-0.1776,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=45.4944,h=27.9384,f={0,1,0,1}}}},
+	["Billboard_Skyline_348__screen"] = {size={42.8312,24.3766,0.6}, groups={{uv={0.2515,0.2515,0.247,0.247},s=-0.1129,ax="X"}}, panels={{g=1,o={0,-0,0.3},n={-0,0,1},r={1,-0,0},w=42.8312,h=24.3766,f={0,1,0,1}}}},
+	["Billboard_Skyline_349__screen"] = {size={0.6,19.5085,25.4155}, groups={{uv={0.2515,0.7515,0.247,0.247},s=0.1602,ax="X"}}, panels={{g=1,o={-0.3,0,0.0001},n={-1,0,-0},r={-0,0,1},w=25.4155,h=19.5085,f={0,1,0,1}}}},
+	["Billboard_Skyline_350__screen"] = {size={39.8741,23.7752,0.6}, groups={{uv={0.2515,0.2515,0.247,0.247},s=-0.0878,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=39.8741,h=23.7752,f={0,1,0,1}}}},
+	["Billboard_Skyline_351__screen"] = {size={37.2379,25.3912,0.6}, groups={{uv={0.5015,0.2515,0.247,0.247},s=-0.1807,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=37.2379,h=25.3912,f={0,1,0,1}}}},
+	["Billboard_Skyline_352__screen"] = {size={24.8038,50.2064,0.6}, groups={{uv={0.5015,0.0015,0.247,0.247},s=0.1709,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=24.8038,h=50.2064,f={0,1,0,1}}}},
+	["Billboard_Skyline_353__screen"] = {size={29.7355,20.3725,0.6}, groups={{uv={0.0015,0.7515,0.247,0.247},s=0.1118,ax="X"}}, panels={{g=1,o={-0,-0,0.3},n={-0,0,1},r={1,0,0},w=29.7355,h=20.3725,f={0,1,0,1}}}},
+	["Billboard_Skyline_354__screen"] = {size={0.6,33.4644,46.5839}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.1528,ax="X"}}, panels={{g=1,o={-0.3,0,0},n={-1,0,-0},r={-0,0,1},w=46.584,h=33.4644,f={0,1,0,1}}}},
+	["Billboard_Skyline_355__screen"] = {size={17.5789,39.0149,0.6}, groups={{uv={0.5015,0.0015,0.247,0.247},s=-0.1079,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=17.5789,h=39.0149,f={0,1,0,1}}}},
+	["Billboard_Skyline_356__screen"] = {size={26.1991,58.9195,0.6}, groups={{uv={0.2515,0.7515,0.247,0.247},s=-0.1802,ax="Y"}}, panels={{g=1,o={-0,-0,0.3},n={-0,0,1},r={1,0,0},w=26.1991,h=58.9195,f={0,1,0,1}}}},
+	["Billboard_Skyline_357__screen"] = {size={45.9579,35.9517,0.6}, groups={{uv={0.2515,0.0015,0.247,0.247},s=-0.1811,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=45.9579,h=35.9517,f={0,1,0,1}}}},
+	["Billboard_Skyline_358__screen"] = {size={49.3549,30.0614,0.6}, groups={{uv={0.2515,0.5015,0.247,0.247},s=0.118,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=49.3549,h=30.0614,f={0,1,0,1}}}},
+	["Billboard_Skyline_359__screen"] = {size={16.374,44.794,0.6}, groups={{uv={0.0015,0.2515,0.247,0.247},s=0.1199,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=16.374,h=44.794,f={0,1,0,1}}}},
+	["Billboard_Skyline_360__screen"] = {size={38.3821,26.9606,0.6}, groups={{uv={0.2515,0.2515,0.247,0.247},s=0.1603,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=38.3821,h=26.9606,f={0,1,0,1}}}},
+	["Billboard_Skyline_361__screen"] = {size={37.1339,23.9121,0.6}, groups={{uv={0.7515,0.7515,0.247,0.247},s=-0.1874,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=37.1339,h=23.9121,f={0,1,0,1}}}},
+	["Billboard_Skyline_362__screen"] = {size={50.5945,40.2942,0.6}, groups={{uv={0.2515,0.0015,0.247,0.247},s=0.1411,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=50.5945,h=40.2942,f={0,1,0,1}}}},
+	["Billboard_Skyline_363__screen"] = {size={44.5087,35.4442,0.6}, groups={{uv={0.0015,0.5015,0.247,0.247},s=0.1303,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=44.5087,h=35.4442,f={0,1,0,1}}}},
+	["Billboard_Skyline_364__screen"] = {size={23.3692,51.613,0.6}, groups={{uv={0.0015,0.2515,0.247,0.247},s=0.1215,ax="Y"}}, panels={{g=1,o={-0.0001,-0.0001,0.3},n={-0,0,1},r={1,0,0},w=23.3692,h=51.613,f={0,1,0,1}}}},
+	["Billboard_Skyline_365__screen"] = {size={23.3988,61.7127,0.6}, groups={{uv={0.0015,0.7515,0.247,0.247},s=0.157,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=23.3988,h=61.7126,f={0,1,0,1}}}},
+	["Billboard_Skyline_366__screen"] = {size={35.9864,29.147,0.6}, groups={{uv={0.5015,0.0015,0.247,0.247},s=0.123,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=35.9864,h=29.147,f={0,1,0,1}}}},
+	["Billboard_Skyline_367__screen"] = {size={44.419,25.1245,0.6}, groups={{uv={0.7515,0.7515,0.247,0.247},s=-0.0958,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=44.4191,h=25.1245,f={0,1,0,1}}}},
+	["Billboard_Skyline_368__screen"] = {size={43.4909,28.9003,0.6}, groups={{uv={0.2515,0.5015,0.247,0.247},s=0.1003,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=43.4908,h=28.9003,f={0,1,0,1}}}},
+	["Billboard_Skyline_369__screen"] = {size={34.1512,19.8468,0.6}, groups={{uv={0.7515,0.2515,0.247,0.247},s=0.1443,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=34.1512,h=19.8468,f={0,1,0,1}}}},
+	["Billboard_Skyline_370__screen"] = {size={39.4642,27.6671,0.6}, groups={{uv={0.7515,0.0015,0.247,0.247},s=0.0853,ax="X"}}, panels={{g=1,o={0.0001,-0.0001,0.3},n={-0,0,1},r={1,0,0},w=39.4642,h=27.6671,f={0,1,0,1}}}},
+	["Billboard_Skyline_371__screen"] = {size={28.2473,16.788,0.6}, groups={{uv={0.0015,0.7515,0.247,0.247},s=0.0866,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=28.2473,h=16.788,f={0,1,0,1}}}},
+	["Billboard_Skyline_372__screen"] = {size={41.3826,28.5026,0.6}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.0959,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=41.3826,h=28.5026,f={0,1,0,1}}}},
+	["Billboard_Skyline_373__screen"] = {size={37.3185,23.1118,0.6}, groups={{uv={0.2515,0.5015,0.247,0.247},s=-0.0932,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=37.3185,h=23.1118,f={0,1,0,1}}}},
+	["Billboard_Skyline_374__screen"] = {size={0.6,28.9922,45.4994}, groups={{uv={0.0015,0.2515,0.247,0.247},s=0.1866,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=45.4993,h=28.9922,f={0,1,0,1}}}},
+	["Billboard_Skyline_375__screen"] = {size={14.0933,28.3149,0.6}, groups={{uv={0.5015,0.0015,0.247,0.247},s=-0.1075,ax="Y"}}, panels={{g=1,o={0.0001,-0,0.3},n={-0,0,1},r={1,-0,0},w=14.0933,h=28.3149,f={0,1,0,1}}}},
+	["Billboard_Skyline_376__screen"] = {size={24.9144,79.1326,0.6}, groups={{uv={0.5015,0.7515,0.247,0.247},s=0.1866,ax="Y"}}, panels={{g=1,o={0.0001,-0,0.3},n={-0,0,1},r={1,-0,0},w=24.9144,h=79.1326,f={0,1,0,1}}}},
+	["Billboard_Skyline_377__screen"] = {size={31.7554,24.3449,0.6}, groups={{uv={0.2515,0.5015,0.247,0.247},s=-0.1736,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=31.7554,h=24.3449,f={0,1,0,1}}}},
+	["Billboard_Skyline_378__screen"] = {size={0.6,57.1685,18.6289}, groups={{uv={0.2515,0.2515,0.247,0.247},s=0.1945,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=18.6289,h=57.1685,f={0,1,0,1}}}},
+	["Billboard_Skyline_379__screen"] = {size={41.6602,27.1071,0.6}, groups={{uv={0.7515,0.7515,0.247,0.247},s=0.1729,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=41.6602,h=27.1071,f={0,1,0,1}}}},
+	["Billboard_Skyline_380__screen"] = {size={0.6,20.1201,29.0135}, groups={{uv={0.0015,0.2515,0.247,0.247},s=-0.1673,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=29.0134,h=20.1201,f={0,1,0,1}}}},
+	["Billboard_Skyline_381__screen"] = {size={24.2673,15.5638,0.6}, groups={{uv={0.5015,0.2515,0.247,0.247},s=-0.118,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=24.2673,h=15.5638,f={0,1,0,1}}}},
+	["Billboard_Skyline_382__screen"] = {size={17.1337,43.7658,0.6}, groups={{uv={0.2515,0.2515,0.247,0.247},s=0.0849,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=17.1337,h=43.7658,f={0,1,0,1}}}},
+	["Billboard_Skyline_383__screen"] = {size={19.4424,59.6506,0.6}, groups={{uv={0.2515,0.7515,0.247,0.247},s=0.1946,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=19.4424,h=59.6506,f={0,1,0,1}}}},
+	["Billboard_Skyline_384__screen"] = {size={41.1376,26.8458,0.6}, groups={{uv={0.5015,0.5015,0.247,0.247},s=0.1894,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=41.1376,h=26.8458,f={0,1,0,1}}}},
+	["Billboard_Skyline_385__screen"] = {size={18.7855,52.772,0.6}, groups={{uv={0.5015,0.2515,0.247,0.247},s=0.1877,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=18.7855,h=52.772,f={0,1,0,1}}}},
+	["Billboard_Skyline_386__screen"] = {size={42.1239,32.4097,0.6}, groups={{uv={0.0015,0.2515,0.247,0.247},s=0.1064,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=42.1239,h=32.4097,f={0,1,0,1}}}},
+	["Billboard_Skyline_387__screen"] = {size={18.4344,48.7081,0.6}, groups={{uv={0.5015,0.5015,0.247,0.247},s=-0.187,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=18.4344,h=48.7081,f={0,1,0,1}}}},
+	["Billboard_Skyline_388__screen"] = {size={24.465,51.7039,0.6}, groups={{uv={0.2515,0.2515,0.247,0.247},s=0.1678,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=24.465,h=51.7039,f={0,1,0,1}}}},
+	["Billboard_Skyline_389__screen"] = {size={37.6219,26.4388,0.6}, groups={{uv={0.0015,0.5015,0.247,0.247},s=0.1208,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=37.6219,h=26.4388,f={0,1,0,1}}}},
+	["Billboard_Skyline_390__screen"] = {size={14.6939,41.7323,0.6}, groups={{uv={0.0015,0.0015,0.247,0.247},s=0.1518,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=14.6938,h=41.7323,f={0,1,0,1}}}},
+	["Billboard_Skyline_391__screen"] = {size={21.8423,62.3488,0.6}, groups={{uv={0.5015,0.5015,0.247,0.247},s=-0.0954,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=21.8423,h=62.3488,f={0,1,0,1}}}},
+	["Billboard_Skyline_392__screen"] = {size={31.4548,23.1279,0.6}, groups={{uv={0.5015,0.7515,0.247,0.247},s=-0.1104,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=31.4548,h=23.1279,f={0,1,0,1}}}},
+	["Billboard_Skyline_393__screen"] = {size={29.2024,19.4532,0.6}, groups={{uv={0.2515,0.2515,0.247,0.247},s=0.1682,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=29.2024,h=19.4532,f={0,1,0,1}}}},
+	["Billboard_Skyline_394__screen"] = {size={0.6,18.5493,26.0289}, groups={{uv={0.0015,0.0015,0.247,0.247},s=-0.1943,ax="X"}}, panels={{g=1,o={0.3,0,0.0001},n={1,0,-0},r={-0,-0,-1},w=26.0288,h=18.5493,f={0,1,0,1}}}},
+	["Billboard_Skyline_395__screen"] = {size={38.2299,25.7558,0.6}, groups={{uv={0.7515,0.0015,0.247,0.247},s=0.1137,ax="X"}}, panels={{g=1,o={0,0,0.3002},n={-0,0,1},r={1,-0,0},w=38.23,h=25.7558,f={0,1,0,1}}}},
+	["Billboard_Skyline_396__screen"] = {size={24.4654,69.3785,0.6}, groups={{uv={0.2515,0.5015,0.247,0.247},s=-0.1504,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=24.4655,h=69.3785,f={0,1,0,1}}}},
+	["Billboard_Skyline_397__screen"] = {size={29.822,62.0777,0.6}, groups={{uv={0.2515,0.0015,0.247,0.247},s=-0.1535,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=29.822,h=62.0777,f={0,1,0,1}}}},
+	["Billboard_Skyline_398__screen"] = {size={27.2333,21.6123,0.6}, groups={{uv={0.2515,0.2515,0.247,0.247},s=-0.1258,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=27.2334,h=21.6124,f={0,1,0,1}}}},
+	["Billboard_Skyline_399__screen"] = {size={38.7268,24.089,0.6}, groups={{uv={0.7515,0.5015,0.247,0.247},s=0.1287,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=38.7267,h=24.089,f={0,1,0,1}}}},
+	["Billboard_Skyline_400__screen"] = {size={46.7943,39.6186,0.6}, groups={{uv={0.5015,0.0015,0.247,0.247},s=-0.1699,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=46.7943,h=39.6186,f={0,1,0,1}}}},
+	["Billboard_Skyline_401__screen"] = {size={0.6,58.3574,20.0539}, groups={{uv={0.0015,0.7515,0.247,0.247},s=-0.1244,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=20.054,h=58.3574,f={0,1,0,1}}}},
+	["Billboard_Skyline_402__screen"] = {size={39.4824,32.4896,0.6}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.1655,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=39.4824,h=32.4896,f={0,1,0,1}}}},
+	["Billboard_Skyline_403__screen"] = {size={16.7685,34.7693,0.6}, groups={{uv={0.2515,0.5015,0.247,0.247},s=0.1412,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=16.7686,h=34.7693,f={0,1,0,1}}}},
+	["Billboard_Skyline_404__screen"] = {size={18.519,47.6182,0.6}, groups={{uv={0.0015,0.5015,0.247,0.247},s=0.128,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=18.519,h=47.6182,f={0,1,0,1}}}},
+	["Billboard_Skyline_405__screen"] = {size={15.4638,47.6202,0.6}, groups={{uv={0.7515,0.0015,0.247,0.247},s=0.1485,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=15.4639,h=47.6202,f={0,1,0,1}}}},
+	["Billboard_Skyline_406__screen"] = {size={43.8614,29.6446,0.6}, groups={{uv={0.5015,0.0015,0.247,0.247},s=0.0927,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=43.8613,h=29.6446,f={0,1,0,1}}}},
+	["Billboard_Skyline_407__screen"] = {size={0.6,19.8163,27.4016}, groups={{uv={0.5015,0.5015,0.247,0.247},s=0.1433,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=27.4016,h=19.8163,f={0,1,0,1}}}},
+	["Billboard_Skyline_408__screen"] = {size={35.9455,29.1154,0.6}, groups={{uv={0.0015,0.2515,0.247,0.247},s=0.1918,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=35.9454,h=29.1154,f={0,1,0,1}}}},
+	["Billboard_Skyline_409__screen"] = {size={47.0597,30.6601,0.6}, groups={{uv={0.7515,0.7515,0.247,0.247},s=0.1454,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=47.0597,h=30.6602,f={0,1,0,1}}}},
+	["Billboard_Skyline_410__screen"] = {size={22.2746,65.0464,0.6}, groups={{uv={0.0015,0.5015,0.247,0.247},s=0.1634,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=22.2747,h=65.0464,f={0,1,0,1}}}},
+	["Billboard_Skyline_411__screen"] = {size={0.6,23.13,36.3941}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.1389,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=36.3941,h=23.13,f={0,1,0,1}}}},
+	["Billboard_Skyline_412__screen"] = {size={26.5055,70.0235,0.6}, groups={{uv={0.7515,0.5015,0.247,0.247},s=-0.1016,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=26.5055,h=70.0236,f={0,1,0,1}}}},
+	["Billboard_Skyline_413__screen"] = {size={0.6,51.6146,19.4378}, groups={{uv={0.2515,0.7515,0.247,0.247},s=0.1628,ax="Y"}}, panels={{g=1,o={0.3,-0,0.0002},n={1,-0,-0},r={-0,0,-1},w=19.4377,h=51.6146,f={0,1,0,1}}}},
+	["Billboard_Skyline_414__screen"] = {size={24.7713,18.6906,0.6}, groups={{uv={0.2515,0.2515,0.247,0.247},s=-0.088,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=24.7714,h=18.6906,f={0,1,0,1}}}},
+	["Billboard_Skyline_415__screen"] = {size={0.6,20.6412,34.1847}, groups={{uv={0.7515,0.0015,0.247,0.247},s=-0.1051,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=34.1846,h=20.6412,f={0,1,0,1}}}},
+	["Billboard_Skyline_416__screen"] = {size={45.0053,32.3444,0.6}, groups={{uv={0.2515,0.5015,0.247,0.247},s=-0.1067,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=45.0052,h=32.3444,f={0,1,0,1}}}},
+	["Billboard_Skyline_417__screen"] = {size={0.6,26.8715,39.372}, groups={{uv={0.2515,0.0015,0.247,0.247},s=0.1165,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=39.3721,h=26.8715,f={0,1,0,1}}}},
+	["Billboard_Skyline_418__screen"] = {size={18.2386,42.8212,0.6}, groups={{uv={0.5015,0.0015,0.247,0.247},s=0.1797,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=18.2385,h=42.8212,f={0,1,0,1}}}},
+	["Billboard_Skyline_419__screen"] = {size={0.6,20.5747,25.697}, groups={{uv={0.2515,0.7515,0.247,0.247},s=0.1708,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=25.697,h=20.5747,f={0,1,0,1}}}},
+	["Billboard_Skyline_420__screen"] = {size={37.2326,25.6929,0.6}, groups={{uv={0.7515,0.5015,0.247,0.247},s=0.1545,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=37.2325,h=25.6929,f={0,1,0,1}}}},
+	["Billboard_Skyline_421__screen"] = {size={35.0062,27.0484,0.6}, groups={{uv={0.2515,0.7515,0.247,0.247},s=-0.155,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=35.0062,h=27.0484,f={0,1,0,1}}}},
+	["Billboard_Skyline_422__screen"] = {size={0.6,43.6435,16.4034}, groups={{uv={0.5015,0.2515,0.247,0.247},s=0.1032,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,-0,-1},w=16.4033,h=43.6435,f={0,1,0,1}}}},
+	["Billboard_Skyline_423__screen"] = {size={28.0231,22.3721,0.6}, groups={{uv={0.0015,0.7515,0.247,0.247},s=-0.106,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=28.0231,h=22.3721,f={0,1,0,1}}}},
+	["Billboard_Skyline_424__screen"] = {size={0.6,40.5049,19.5234}, groups={{uv={0.5015,0.5015,0.247,0.247},s=0.1175,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=19.5234,h=40.5049,f={0,1,0,1}}}},
+	["Billboard_Skyline_425__screen"] = {size={37.7192,27.003,0.6}, groups={{uv={0.2515,0.7515,0.247,0.247},s=0.0815,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=37.7192,h=27.003,f={0,1,0,1}}}},
+	["Billboard_Skyline_426__screen"] = {size={42.4329,32.0151,0.6}, groups={{uv={0.2515,0.2515,0.247,0.247},s=0.0894,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=42.4329,h=32.0151,f={0,1,0,1}}}},
+	["Billboard_Skyline_427__screen"] = {size={0.6,31.1633,40.4461}, groups={{uv={0.0015,0.0015,0.247,0.247},s=-0.1206,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=40.446,h=31.1633,f={0,1,0,1}}}},
+	["Billboard_Skyline_428__screen"] = {size={29.2908,77.365,0.6}, groups={{uv={0.0015,0.2515,0.247,0.247},s=0.176,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=29.2908,h=77.365,f={0,1,0,1}}}},
+	["Billboard_Skyline_429__screen"] = {size={0.6,15.3154,25.8371}, groups={{uv={0.5015,0.7515,0.247,0.247},s=0.0998,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=25.837,h=15.3154,f={0,1,0,1}}}},
+	["Billboard_Skyline_430__screen"] = {size={39.8948,33.0052,0.6}, groups={{uv={0.0015,0.2515,0.247,0.247},s=0.098,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=39.8948,h=33.0052,f={0,1,0,1}}}},
+	["Billboard_Skyline_431__screen"] = {size={34.2892,22.9854,0.6}, groups={{uv={0.5015,0.2515,0.247,0.247},s=0.0833,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=34.2892,h=22.9854,f={0,1,0,1}}}},
+	["Billboard_Skyline_432__screen"] = {size={17.3171,38.0289,0.6}, groups={{uv={0.7515,0.0015,0.247,0.247},s=-0.1187,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=17.3171,h=38.0289,f={0,1,0,1}}}},
+	["Billboard_Skyline_433__screen"] = {size={0.6,16.1025,29.1344}, groups={{uv={0.7515,0.7515,0.247,0.247},s=-0.103,ax="X"}}, panels={{g=1,o={0.3,-0,0.0001},n={1,0,-0},r={-0,-0,-1},w=29.1344,h=16.1025,f={0,1,0,1}}}},
+	["Billboard_Skyline_434__screen"] = {size={23.4577,72.68,0.6}, groups={{uv={0.7515,0.7515,0.247,0.247},s=-0.128,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=23.4578,h=72.68,f={0,1,0,1}}}},
+	["Billboard_Skyline_435__screen"] = {size={0.6,56.1421,25.4783}, groups={{uv={0.7515,0.7515,0.247,0.247},s=0.115,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=25.4783,h=56.1421,f={0,1,0,1}}}},
+	["Billboard_Skyline_436__screen"] = {size={31.7599,19.8827,0.6}, groups={{uv={0.7515,0.0015,0.247,0.247},s=-0.132,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=31.7598,h=19.8828,f={0,1,0,1}}}},
+	["Billboard_Skyline_437__screen"] = {size={0.6,52.3502,18.4877}, groups={{uv={0.0015,0.0015,0.247,0.247},s=-0.0933,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=18.4877,h=52.3503,f={0,1,0,1}}}},
+	["Billboard_Skyline_438__screen"] = {size={0.6,19.3218,26.2292}, groups={{uv={0.0015,0.7515,0.247,0.247},s=-0.1896,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=26.2292,h=19.3217,f={0,1,0,1}}}},
+	["Billboard_Skyline_439__screen"] = {size={0.6,54.8116,18.6834}, groups={{uv={0.0015,0.0015,0.247,0.247},s=-0.1,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,-0,-1},w=18.6833,h=54.8116,f={0,1,0,1}}}},
+	["Billboard_Skyline_440__screen"] = {size={34.0066,19.8951,0.6}, groups={{uv={0.7515,0.0015,0.247,0.247},s=0.1525,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=34.0066,h=19.8951,f={0,1,0,1}}}},
+	["Billboard_Skyline_441__screen"] = {size={0.6,65.9872,24.8377}, groups={{uv={0.2515,0.7515,0.247,0.247},s=0.0887,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=24.8376,h=65.9872,f={0,1,0,1}}}},
+	["Billboard_Skyline_442__screen"] = {size={48.3333,28.5997,0.6}, groups={{uv={0.0015,0.0015,0.247,0.247},s=-0.1667,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=48.3333,h=28.5997,f={0,1,0,1}}}},
+	["Billboard_Skyline_443__screen"] = {size={0.6,24.1987,34.7949}, groups={{uv={0.7515,0.0015,0.247,0.247},s=0.1662,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=34.7949,h=24.1987,f={0,1,0,1}}}},
+	["Billboard_Skyline_444__screen"] = {size={0.6,24.5566,43.0537}, groups={{uv={0.2515,0.2515,0.247,0.247},s=0.0948,ax="X"}}, panels={{g=1,o={0.3002,0,0.0001},n={1,0,-0},r={-0,-0,-1},w=43.0537,h=24.5566,f={0,1,0,1}}}},
+	["Billboard_Skyline_445__screen"] = {size={0.6,48.5182,22.744}, groups={{uv={0.5015,0.0015,0.247,0.247},s=0.1134,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=22.744,h=48.5182,f={0,1,0,1}}}},
+	["Billboard_Skyline_446__screen"] = {size={24.563,62.2311,0.6}, groups={{uv={0.5015,0.7515,0.247,0.247},s=-0.1573,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=24.563,h=62.2311,f={0,1,0,1}}}},
+	["Billboard_Skyline_447__screen"] = {size={0.6,21.3505,30.4883}, groups={{uv={0.2515,0.0015,0.247,0.247},s=0.1223,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=30.4883,h=21.3505,f={0,1,0,1}}}},
+	["Billboard_Skyline_448__screen"] = {size={0.6,21.9909,31.5776}, groups={{uv={0.2515,0.2515,0.247,0.247},s=0.1726,ax="X"}}, panels={{g=1,o={0.3,-0.0001,0.0001},n={1,-0,-0},r={-0,-0,-1},w=31.5776,h=21.9908,f={0,1,0,1}}}},
+	["Billboard_Skyline_449__screen"] = {size={0.6,29.7669,13.4818}, groups={{uv={0.2515,0.7515,0.247,0.247},s=0.1614,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=13.4818,h=29.7669,f={0,1,0,1}}}},
+	["Billboard_Skyline_450__screen"] = {size={34.6723,26.5312,0.6}, groups={{uv={0.2515,0.7515,0.247,0.247},s=-0.0923,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=34.6724,h=26.5312,f={0,1,0,1}}}},
+	["Billboard_Skyline_451__screen"] = {size={0.6,23.0216,39.082}, groups={{uv={0.0015,0.7515,0.247,0.247},s=0.1536,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=39.0819,h=23.0216,f={0,1,0,1}}}},
+	["Billboard_Skyline_452__screen"] = {size={37.1962,22.2354,0.6}, groups={{uv={0.7515,0.0015,0.247,0.247},s=-0.1671,ax="X"}}, panels={{g=1,o={0.0002,-0,0.3},n={-0,0,1},r={1,0,0},w=37.1962,h=22.2354,f={0,1,0,1}}}},
+	["Billboard_Skyline_453__screen"] = {size={0.6,27.8821,35.1028}, groups={{uv={0.0015,0.0015,0.247,0.247},s=0.1551,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=35.1028,h=27.8821,f={0,1,0,1}}}},
+	["Billboard_Skyline_454__screen"] = {size={0.6,53.1251,22.6572}, groups={{uv={0.5015,0.7515,0.247,0.247},s=-0.1563,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=22.6572,h=53.1252,f={0,1,0,1}}}},
+	["Billboard_Skyline_455__screen"] = {size={0.6,45.8723,14.9587}, groups={{uv={0.7515,0.7515,0.247,0.247},s=0.1038,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=14.9586,h=45.8723,f={0,1,0,1}}}},
+	["Billboard_Skyline_456__screen"] = {size={0.6,43.4455,17.1849}, groups={{uv={0.2515,0.5015,0.247,0.247},s=0.095,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=17.1848,h=43.4455,f={0,1,0,1}}}},
+	["Billboard_Skyline_457__screen"] = {size={0.6,27.7964,39.609}, groups={{uv={0.2515,0.5015,0.247,0.247},s=-0.1948,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=39.609,h=27.7964,f={0,1,0,1}}}},
+	["Billboard_Skyline_458__screen"] = {size={25.1407,51.1452,0.6}, groups={{uv={0.7515,0.7515,0.247,0.247},s=0.1253,ax="Y"}}, panels={{g=1,o={0.0001,-0.0001,0.3},n={-0,0,1},r={1,0,0},w=25.1407,h=51.1452,f={0,1,0,1}}}},
+	["Billboard_Skyline_459__screen"] = {size={32.9628,22.2629,0.6}, groups={{uv={0.5015,0.7515,0.247,0.247},s=-0.1717,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=32.9628,h=22.2629,f={0,1,0,1}}}},
+	["Billboard_Skyline_460__screen"] = {size={0.6,22.5654,40.2261}, groups={{uv={0.7515,0.0015,0.247,0.247},s=-0.1043,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=40.2261,h=22.5654,f={0,1,0,1}}}},
+	["Billboard_Skyline_461__screen"] = {size={0.6,26.0596,35.4089}, groups={{uv={0.7515,0.2515,0.247,0.247},s=0.1968,ax="X"}}, panels={{g=1,o={0.3,0,0.0001},n={1,0,-0},r={-0,-0,-1},w=35.4089,h=26.0596,f={0,1,0,1}}}},
+	["Billboard_Skyline_462__screen"] = {size={40.158,31.7496,0.6}, groups={{uv={0.7515,0.0015,0.247,0.247},s=0.1538,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=40.158,h=31.7496,f={0,1,0,1}}}},
+	["Billboard_Skyline_463__screen"] = {size={0.6,41.003,50.7183}, groups={{uv={0.5015,0.2515,0.247,0.247},s=0.1209,ax="X"}}, panels={{g=1,o={0.3,0,0.0001},n={1,0,-0},r={-0,-0,-1},w=50.7184,h=41.003,f={0,1,0,1}}}},
+	["Billboard_Skyline_464__screen"] = {size={0.6,42.3472,16.5163}, groups={{uv={0.7515,0.2515,0.247,0.247},s=-0.1139,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=16.5163,h=42.3473,f={0,1,0,1}}}},
+	["Billboard_Skyline_465__screen"] = {size={0.6,36.6163,46.3801}, groups={{uv={0.7515,0.0015,0.247,0.247},s=-0.1874,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=46.3802,h=36.6163,f={0,1,0,1}}}},
+	["Billboard_Skyline_466__screen"] = {size={0.6,18.9029,30.493}, groups={{uv={0.7515,0.2515,0.247,0.247},s=0.1491,ax="X"}}, panels={{g=1,o={0.3,-0,0.0001},n={1,0,-0},r={-0,-0,-1},w=30.493,h=18.9029,f={0,1,0,1}}}},
+	["Billboard_Skyline_467__screen"] = {size={0.6,24.5638,36.8771}, groups={{uv={0.7515,0.0015,0.247,0.247},s=-0.1858,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=36.8771,h=24.5638,f={0,1,0,1}}}},
+	["Billboard_Skyline_468__screen"] = {size={0.6,25.0625,43.5017}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.1884,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=43.5017,h=25.0625,f={0,1,0,1}}}},
+	["Billboard_Skyline_469__screen"] = {size={0.6,30.4837,37.6562}, groups={{uv={0.7515,0.5015,0.247,0.247},s=0.1712,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=37.6561,h=30.4837,f={0,1,0,1}}}},
+	["Billboard_Skyline_470__screen"] = {size={0.6,20.918,34.3237}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.1254,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=34.3237,h=20.918,f={0,1,0,1}}}},
+	["Billboard_Skyline_471__screen"] = {size={0.6,29.1962,36.0891}, groups={{uv={0.0015,0.7515,0.247,0.247},s=-0.1378,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=36.0891,h=29.1962,f={0,1,0,1}}}},
+	["Billboard_Skyline_472__screen"] = {size={0.6,41.6487,19.326}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.1163,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=19.326,h=41.6487,f={0,1,0,1}}}},
+	["Billboard_Skyline_473__screen"] = {size={0.6,54.0726,19.7966}, groups={{uv={0.5015,0.2515,0.247,0.247},s=-0.1182,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=19.7966,h=54.0726,f={0,1,0,1}}}},
+	["Billboard_Skyline_474__screen"] = {size={0.6,54.0619,20.3524}, groups={{uv={0.7515,0.7515,0.247,0.247},s=-0.162,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=20.3524,h=54.0618,f={0,1,0,1}}}},
+	["Billboard_Skyline_475__screen"] = {size={29.5662,75.0597,0.6}, groups={{uv={0.7515,0.5015,0.247,0.247},s=-0.1308,ax="Y"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=29.5662,h=75.0598,f={0,1,0,1}}}},
+	["Billboard_Skyline_476__screen"] = {size={0.6,36.168,45.163}, groups={{uv={0.7515,0.2515,0.247,0.247},s=0.1573,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=45.163,h=36.168,f={0,1,0,1}}}},
+	["Billboard_Skyline_477__screen"] = {size={43.0651,35.6489,0.6}, groups={{uv={0.2515,0.0015,0.247,0.247},s=0.1392,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,0,0},w=43.0652,h=35.6489,f={0,1,0,1}}}},
+	["Billboard_Skyline_478__screen"] = {size={0.6,25.3416,32.4527}, groups={{uv={0.2515,0.2515,0.247,0.247},s=-0.0883,ax="X"}}, panels={{g=1,o={0.3,0,0},n={1,0,-0},r={-0,-0,-1},w=32.4528,h=25.3416,f={0,1,0,1}}}},
+	["Billboard_Skyline_479__screen"] = {size={37.043,23.6721,0.6}, groups={{uv={0.0015,0.2515,0.247,0.247},s=-0.0974,ax="X"}}, panels={{g=1,o={0,0,0.3},n={-0,0,1},r={1,-0,0},w=37.043,h=23.6721,f={0,1,0,1}}}},
+	["Billboard_Skyline_480__screen"] = {size={0.6,46.7236,22.7595}, groups={{uv={0.5015,0.0015,0.247,0.247},s=-0.1166,ax="Y"}}, panels={{g=1,o={0.3,0,0},n={1,-0,-0},r={-0,0,-1},w=22.7595,h=46.7236,f={0,1,0,1}}}},
+	["Billboard_Small_001__screen"] = {size={3.4,4.6,0.5}, groups={{uv={0.7515,0.0015,0.247,0.247},s=0.1693,ax="Y"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,-0,0},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_002__screen"] = {size={3.4,4.6,0.5}, groups={{uv={0.0015,0.0015,0.247,0.247},s=0.1118,ax="Y"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,-0,0},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_003__screen"] = {size={3.4,4.6,0.5}, groups={{uv={0.2515,0.7515,0.247,0.247},s=0.1329,ax="Y"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,0,0},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_004__screen"] = {size={3.4,4.6,0.5}, groups={{uv={0.7515,0.2515,0.247,0.247},s=-0.1022,ax="Y"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,0,0},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_005__screen"] = {size={3.4,4.6,0.5}, groups={{uv={0.7515,0.0015,0.247,0.247},s=0.1152,ax="Y"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,-0,0},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_006__screen"] = {size={3.4,4.6,0.5}, groups={{uv={0.5015,0.0015,0.247,0.247},s=0.116,ax="Y"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,-0,0},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_007__screen"] = {size={3.4,4.6,0.5}, groups={{uv={0.7515,0.7515,0.247,0.247},s=0.1931,ax="Y"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,0,0},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_008__screen"] = {size={3.4,4.6,0.5}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.086,ax="Y"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,0,0},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_009__screen"] = {size={3.4,4.6,0.5}, groups={{uv={0.0015,0.5015,0.247,0.247},s=-0.164,ax="Y"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,0,0},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_010__screen"] = {size={3.4,4.6,0.5}, groups={{uv={0.2515,0.0015,0.247,0.247},s=-0.1814,ax="Y"}}, panels={{g=1,o={0,0,0.25},n={-0,0,1},r={1,-0,0},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_011__screen"] = {size={0.5,4.6,3.4}, groups={{uv={0.7515,0.0015,0.247,0.247},s=-0.1876,ax="Y"}}, panels={{g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}, {g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_012__screen"] = {size={0.5,4.6,3.4}, groups={{uv={0.7515,0.7515,0.247,0.247},s=-0.1424,ax="Y"}}, panels={{g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}, {g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_013__screen"] = {size={0.5,4.6,3.4}, groups={{uv={0.0015,0.7515,0.247,0.247},s=0.1116,ax="Y"}}, panels={{g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}, {g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_014__screen"] = {size={0.5,4.6,3.4}, groups={{uv={0.0015,0.7515,0.247,0.247},s=0.1366,ax="Y"}}, panels={{g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}, {g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_015__screen"] = {size={0.5,4.6,3.4}, groups={{uv={0.7515,0.2515,0.247,0.247},s=-0.1973,ax="Y"}}, panels={{g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}, {g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_016__screen"] = {size={0.5,4.6,3.4}, groups={{uv={0.0015,0.7515,0.247,0.247},s=-0.1087,ax="Y"}}, panels={{g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}, {g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_017__screen"] = {size={0.5,4.6,3.4}, groups={{uv={0.7515,0.5015,0.247,0.247},s=-0.1909,ax="Y"}}, panels={{g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}, {g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_018__screen"] = {size={0.5,4.6,3.4}, groups={{uv={0.5015,0.0015,0.247,0.247},s=-0.1202,ax="Y"}}, panels={{g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}, {g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_019__screen"] = {size={0.5,4.6,3.4}, groups={{uv={0.2515,0.2515,0.247,0.247},s=-0.187,ax="Y"}}, panels={{g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}, {g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_020__screen"] = {size={0.5,4.6,3.4}, groups={{uv={0.0015,0.0015,0.247,0.247},s=-0.1523,ax="Y"}}, panels={{g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}, {g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_021__screen"] = {size={0.5,4.6,3.4}, groups={{uv={0.7515,0.5015,0.247,0.247},s=0.1957,ax="Y"}}, panels={{g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}, {g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_022__screen"] = {size={0.5,4.6,3.4}, groups={{uv={0.5015,0.7515,0.247,0.247},s=-0.1953,ax="Y"}}, panels={{g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}, {g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_023__screen"] = {size={0.5,4.6,3.4}, groups={{uv={0.2515,0.5015,0.247,0.247},s=0.1047,ax="Y"}}, panels={{g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}, {g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_024__screen"] = {size={0.5,4.6,3.4}, groups={{uv={0.5015,0.5015,0.247,0.247},s=0.1569,ax="Y"}}, panels={{g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}, {g=1,o={-0.25,0,0},n={-1,-0,-0},r={-0,0,1},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_025__screen"] = {size={3.4,4.6,0.5}, groups={{uv={0.2515,0.0015,0.247,0.247},s=-0.138,ax="Y"}}, panels={{g=1,o={0,0,-0.25},n={0,0,-1},r={-1,0,0},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_026__screen"] = {size={3.4,4.6,0.5}, groups={{uv={0.7515,0.5015,0.247,0.247},s=-0.1966,ax="Y"}}, panels={{g=1,o={0,0,-0.25},n={0,0,-1},r={-1,0,0},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_027__screen"] = {size={3.4,4.6,0.5}, groups={{uv={0.0015,0.2515,0.247,0.247},s=0.1533,ax="Y"}}, panels={{g=1,o={0,0,-0.25},n={0,0,-1},r={-1,0,0},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_028__screen"] = {size={3.4,4.6,0.5}, groups={{uv={0.2515,0.2515,0.247,0.247},s=0.1302,ax="Y"}}, panels={{g=1,o={0,0,-0.25},n={0,0,-1},r={-1,0,0},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_029__screen"] = {size={3.4,4.6,0.5}, groups={{uv={0.7515,0.7515,0.247,0.247},s=-0.1449,ax="Y"}}, panels={{g=1,o={0,0,-0.25},n={0,0,-1},r={-1,0,0},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_030__screen"] = {size={3.4,4.6,0.5}, groups={{uv={0.2515,0.7515,0.247,0.247},s=0.0845,ax="Y"}}, panels={{g=1,o={0,0,-0.25},n={0,0,-1},r={-1,0,0},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_031__screen"] = {size={0.5,4.6,3.4}, groups={{uv={0.2515,0.0015,0.247,0.247},s=0.1099,ax="Y"}}, panels={{g=1,o={0.25,0,0},n={1,-0,-0},r={-0,0,-1},w=3.4,h=4.6,f={0,1,0,1}}, {g=1,o={0.25,0,0},n={1,-0,-0},r={-0,0,-1},w=3.4,h=4.6,f={0,1,0,1}}}},
+	["Billboard_Small_032__screen"] = {size={0.5,4.6,3.4}, groups={{uv={0.0015,0.2515,0.247,0.247},s=0.1781,ax="Y"}}, panels={{g=1,o={0.25,0,0},n={1,-0,-0},r={-0,0,-1},w=3.4,h=4.6,f={0,1,0,1}}, {g=1,o={0.25,0,0},n={1,-0,-0},r={-0,0,-1},w=3.4,h=4.6,f={0,1,0,1}}}},
+}}
+]]></ProtectedString>
+			</Properties>
+		</Item>
+		<Item class="Script" referent="RBX4">
+			<Properties>
+				<string name="Name">RunSetup</string>
+				<bool name="Disabled">false</bool>
+				<token name="RunContext">0</token>
+				<ProtectedString name="Source"><![CDATA[-- Builds the cyberpunk look when the game starts, unless it was already baked
+-- into the place from the command bar.
+if workspace:FindFirstChild("CyberpunkFX") then
+	return
+end
+require(script.Parent.CyberpunkSetup).run()
+]]></ProtectedString>
+			</Properties>
+		</Item>
+		<Item class="Script" referent="RBX5">
+			<Properties>
+				<string name="Name">CyberpunkAnimator</string>
+				<bool name="Disabled">false</bool>
+				<token name="RunContext">2</token>
+				<ProtectedString name="Source"><![CDATA[-- Client-side animation: scrolling billboards, LED chase, pulsing roof crowns and
+-- faulty neon signs. Runs as a Script with RunContext = Client.
+local RunService = game:GetService("RunService")
+local CollectionService = game:GetService("CollectionService")
+
+local Config = require(script.Parent.CyberpunkConfig)
+
+while not workspace:GetAttribute("CyberpunkReady") do
+	task.wait(0.5)
+end
+local M = workspace:GetAttribute("CyberpunkStudsPerMeter") or 1
+
+local screens = {}
+local function addScreen(panel: Instance)
+	local gui = panel:FindFirstChildOfClass("SurfaceGui")
+	local clip = gui and gui:FindFirstChild("Clip")
+	if not clip then
+		return
+	end
+	local phase = panel:GetAttribute("Phase") or 0
+	table.insert(screens, {
+		panel = panel,
+		gui = gui,
+		A = clip:FindFirstChild("A"),
+		B = clip:FindFirstChild("B"),
+		scan = clip:FindFirstChild("Scan"),
+		fx = panel:GetAttribute("FX") or 0,
+		fy = panel:GetAttribute("FY") or 0,
+		fw = panel:GetAttribute("FW") or 1,
+		fh = panel:GetAttribute("FH") or 1,
+		speed = panel:GetAttribute("Speed") or 0.1,
+		horizontal = panel:GetAttribute("Axis") ~= "Y",
+		phase = phase,
+		seed = phase * 100,
+	})
+end
+for _, p in ipairs(CollectionService:GetTagged("CP_Screen")) do
+	addScreen(p)
+end
+CollectionService:GetInstanceAddedSignal("CP_Screen"):Connect(addScreen)
+
+local function tagged(tag: string)
+	local list = {}
+	for _, p in ipairs(CollectionService:GetTagged(tag)) do
+		table.insert(list, { part = p, base = p:GetAttribute("Accent") or p.Color, phase = p:GetAttribute("Phase") or (p.Position.X + p.Position.Z) / M })
+	end
+	return list
+end
+local leds = tagged("CP_LED")
+local crowns = tagged("CP_Crown")
+local faulty = tagged("CP_FaultySign")
+
+-- Only animate billboards near the camera
+local active = {}
+local function refreshActive()
+	local cam = workspace.CurrentCamera
+	if not cam then
+		return
+	end
+	local origin = cam.CFrame.Position
+	table.clear(active)
+	for _, s in ipairs(screens) do
+		if s.panel.Parent and (s.panel.Position - origin).Magnitude < Config.AnimateDistanceStuds then
+			table.insert(active, s)
+		end
+	end
+end
+
+local function updateScreens(t: number)
+	for _, s in ipairs(active) do
+		local off = (t * s.speed + s.phase) % 1
+		local jitter = 0
+		if math.noise(t * 1.7, s.seed) > 0.32 then -- brief glitch tearing
+			jitter = math.noise(t * 40, s.seed, 3) * 0.15
+		end
+		if s.horizontal then
+			local y = -s.fy / s.fh
+			s.A.Position = UDim2.fromScale((-off - s.fx + jitter) / s.fw, y)
+			s.B.Position = UDim2.fromScale((1 - off - s.fx + jitter) / s.fw, y)
+		else
+			local x = (-s.fx + jitter) / s.fw
+			s.A.Position = UDim2.fromScale(x, (-off - s.fy) / s.fh)
+			s.B.Position = UDim2.fromScale(x, (1 - off - s.fy) / s.fh)
+		end
+		local blackout = math.noise(t * 0.9, s.seed, 13) < -0.38
+		local flicker = 0.85 + 0.3 * math.noise(t * 6, s.seed, 7)
+		s.gui.Brightness = if blackout then 0.15 else Config.ScreenBrightness * flicker
+		local scanY = ((t * 0.25 + s.phase) % 1.2) - 0.1
+		s.scan.Position = UDim2.fromScale(0, (scanY - s.fy) / s.fh)
+	end
+end
+
+local function scaled(c: Color3, k: number): Color3
+	return Color3.new(c.R * k, c.G * k, c.B * k)
+end
+
+local function updateNeon(t: number)
+	for _, l in ipairs(leds) do
+		local k = (0.5 + 0.5 * math.sin(l.phase * 0.4 - t * 5)) ^ 6
+		l.part.Color = l.base:Lerp(Color3.new(1, 1, 1), k * 0.6)
+		l.part.Transparency = 0.35 * (1 - k)
+	end
+	for _, c in ipairs(crowns) do
+		c.part.Color = scaled(c.base, 0.65 + 0.35 * math.sin(t * 1.5 + c.phase))
+	end
+	for _, f in ipairs(faulty) do
+		f.part.Transparency = if math.noise(t * 9, f.phase) > 0.12 then 0.75 else 0
+	end
+end
+
+local refreshTimer, neonTimer = 0, 0
+refreshActive()
+RunService.RenderStepped:Connect(function(dt)
+	local t = os.clock()
+	refreshTimer += dt
+	if refreshTimer > 1 then
+		refreshTimer = 0
+		refreshActive()
+	end
+	updateScreens(t)
+	neonTimer += dt
+	if neonTimer > 0.05 then
+		neonTimer = 0
+		updateNeon(t)
+	end
+end)
+]]></ProtectedString>
+			</Properties>
+		</Item>
+	</Item>
+</roblox>

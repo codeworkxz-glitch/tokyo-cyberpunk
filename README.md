@@ -1,6 +1,41 @@
 # tokyo-cyberpunk
 
-Turns the `HEX_City_00_FULL_CITY.fbx` map into a neon cyberpunk city in Blender.
+Turns the `HEX_City_00_FULL_CITY.fbx` map into a neon cyberpunk city, for **Roblox Studio** and for Blender.
+
+## Roblox Studio
+
+Files in `roblox/`:
+
+- `HEX_City_Cyberpunk_Roblox.fbx` – the map, split so each MeshPart has one material, with tiling UVs for Roblox materials (textures embedded)
+- `CyberpunkCity.rbxmx` – scripts that apply the look and animate it
+- `textures/` – the same textures as loose PNGs, in case the importer skips embedded ones
+
+Steps:
+
+1. **File → Import 3D**, pick `roblox/HEX_City_Cyberpunk_Roblox.fbx`, import (keep default scale; parts are anchored by the script).
+2. In the Explorer, right-click **Workspace → Insert from File…** and pick `roblox/CyberpunkCity.rbxmx`.
+3. Press **Play**. The setup script runs, and the client script animates everything.
+4. Optional – to see the look while editing (not only in Play), paste into the command bar:
+   `require(workspace.CyberpunkCity.CyberpunkSetup).run()`
+   (this also switches Lighting to Future, which scripts can't do at runtime).
+
+What the scripts do:
+
+- **Concrete everywhere** – props/building parts get Roblox's `Concrete` material, streets `Asphalt`, with dark varied colours
+- **Cyberpunk buildings** – glowing window grids on each facade, neon roof crowns (pulsing) and neon floor bands, one accent colour per building; facade LED strips become `Neon` with a chasing pulse
+- **Moving billboards** – every billboard gets a screen that scrolls its ad (curved screens scroll as one image), with scan line, flicker, glitch tearing and blackouts; screens far from the camera pause
+- **Signs** – ~18% of lit signs flicker like faulty neon
+- **Night lighting** – midnight, purple haze `Atmosphere`, `Bloom`, colour correction
+
+Tweak `CyberpunkCity.CyberpunkConfig` (turn off windows/rings, colours, brightness, etc.).
+Rebuild the Roblox files with:
+
+```sh
+blender -b -P blender/export_roblox.py -- assets/HEX_City_00_FULL_CITY.fbx roblox/
+python3 roblox/build_rbxmx.py
+```
+
+## Blender
 
 ![street level](docs/previews/street_024.png)
 ![aerial](docs/previews/aerial_048.png)
