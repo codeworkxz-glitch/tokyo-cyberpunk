@@ -1,0 +1,1649 @@
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
+	<Item class="Folder" referent="RBX0">
+		<Properties><string name="Name">CyberpunkCityV2</string></Properties>
+		<Item class="ModuleScript" referent="RBX1">
+			<Properties>
+				<string name="Name">CyberpunkConfig</string>
+				<ProtectedString name="Source"><![CDATA[-- HEX! Cyberpunk City v2 - settings. Edit freely; re-run CyberpunkSetup.run() after changes.
+return {
+	-- Lighting --------------------------------------------------------------------------
+	ApplyLighting = true, -- night sky, blue/purple haze, bloom, colour grading
+	ClockTime = 0.2,
+	Ambient = Color3.fromRGB(58, 56, 88),
+	OutdoorAmbient = Color3.fromRGB(92, 88, 140), -- keeps the courts readable at night
+	CourtFloodBrightness = 2.4, -- SpotLights on the plaza light masts (gameplay visibility)
+
+	-- Neon / lit materials (part name suffix -> colour). Neon glows at full colour,
+	-- so the lit-window colours are deliberately darker than the neon accents.
+	NeonColors = {
+		NEON_CYN = Color3.fromRGB(0, 230, 255),
+		NEON_MAG = Color3.fromRGB(255, 25, 175),
+		NEON_VIO = Color3.fromRGB(150, 45, 255),
+		NEON_BLU = Color3.fromRGB(30, 95, 255),
+		NEON_RED = Color3.fromRGB(255, 32, 45),
+		NEON_AMB = Color3.fromRGB(255, 150, 25),
+		NEON_WHT = Color3.fromRGB(200, 215, 255),
+		WIN_WRM = Color3.fromRGB(150, 110, 70),
+		WIN_COL = Color3.fromRGB(80, 115, 160),
+		WIN_PNK = Color3.fromRGB(160, 70, 125),
+		WIN_VIO = Color3.fromRGB(105, 80, 165),
+		SHOP_LIT = Color3.fromRGB(175, 160, 140),
+	},
+	WindowTransparency = 0.05,
+
+	-- Fallback look when a textured part has no SurfaceAppearance / TextureID
+	-- (e.g. the importer did not pick up the PNGs and no asset ids are filled in below).
+	Fallback = {
+		GLS = { Enum.Material.Glass, Color3.fromRGB(28, 34, 58), 0.15 },
+		RIB = { Enum.Material.Glass, Color3.fromRGB(40, 44, 62), 0.1 },
+		PNL = { Enum.Material.Metal, Color3.fromRGB(70, 74, 88), 0 },
+		CON = { Enum.Material.Concrete, Color3.fromRGB(86, 86, 96), 0 },
+		TEC = { Enum.Material.Metal, Color3.fromRGB(56, 60, 78), 0 },
+		MEC = { Enum.Material.DiamondPlate, Color3.fromRGB(78, 84, 88), 0 },
+		ROF = { Enum.Material.Slate, Color3.fromRGB(60, 62, 70), 0 },
+		STL = { Enum.Material.Metal, Color3.fromRGB(64, 68, 80), 0 },
+		LOU = { Enum.Material.Metal, Color3.fromRGB(70, 76, 92), 0 },
+		TWN = { Enum.Material.Glass, Color3.fromRGB(30, 34, 56), 0.1 },
+	},
+
+	-- Optional: asset ids after uploading export/textures (Asset Manager > Bulk Import).
+	-- Fill these only if the 3D Importer did not create SurfaceAppearances for you.
+	-- Example: T_GlassCurtain = { Color = "rbxassetid://123", Normal = "...", Roughness = "...", Metalness = "..." },
+	SurfaceTextures = {},
+	-- Optional: AD_* image ids, only needed if a screen MeshPart lost its texture on import.
+	AdImages = {},
+
+	-- Screens ---------------------------------------------------------------------------
+	ScreenBrightness = 2.2, -- SurfaceGui brightness (LightInfluence 0 = self-lit)
+	HoloTransparency = 0.18,
+	ScreenSurfaceLights = true, -- coloured spill from big screens
+	-- Videos: ["SCR_A_N_17_LMStacked_04"] = "rbxassetid://<video id>"
+	Videos = {},
+	-- Screens whose ad rotates between artworks of the same aspect ratio (needs the ids of
+	-- the other ads: they are collected automatically from all imported screens).
+	RotateKinds = { sky = true, rooftop = true, mg_facade = true, skyline = true, mega = true, giant = true },
+	RotateSeconds = { 9, 16 },
+
+	-- Lights ------------------------------------------------------------------------------
+	MaxLights = 450,
+	ShopLights = true,
+	Beacons = true,
+
+	-- Collisions: midground / skyline (file B) cannot be reached by players.
+	CollideFileB = false,
+}
+]]></ProtectedString>
+			</Properties>
+		</Item>
+		<Item class="ModuleScript" referent="RBX2">
+			<Properties>
+				<string name="Name">CyberpunkSetup</string>
+				<ProtectedString name="Source"><![CDATA[-- HEX! Cyberpunk City v2 - configures the two imported FBX models in Roblox Studio.
+--
+-- Run once from the Studio command bar (bakes the result into the place, enables Future lighting):
+--     require(workspace.CyberpunkCityV2.CyberpunkSetup).run()
+-- RunSetup (server Script) also runs it at game start if it has not been baked yet.
+--
+-- What it does (all driven by part names written by blender/cp2_build.py):
+--   1. finds HEX_ALIGN_A / HEX_ALIGN_B and moves model B so both files share one origin;
+--      measures the marker size to detect any import rescale.
+--   2. `__NEON_*`, `__WIN_*`, `__SHOP_LIT`  -> Material.Neon + colour (self-lit, no texture).
+--      textured keys (`__GLS`, `__PNL`, ...) keep their SurfaceAppearance; if the importer
+--      dropped it, ids from Config.SurfaceTextures or a Roblox material fallback are used.
+--   3. every `SCR_*` screen gets a self-lit SurfaceGui (ImageLabel, or VideoFrame from
+--      Config.Videos) on an invisible anchor part, one per flat panel (curved screens are
+--      split into panels showing their slice of the artwork). Tagged "HEX_Screen".
+--   4. PointLights / SpotLights / SurfaceLights from CityData (court floods, shops, beacons).
+--   5. night Lighting: Atmosphere, Bloom, ColorCorrection.
+
+local CollectionService = game:GetService("CollectionService")
+local Lighting = game:GetService("Lighting")
+
+local Config = require(script.Parent.CyberpunkConfig)
+local Data = require(script.Parent.CityData)
+
+local Setup = {}
+
+local TEXKEY = {
+	GLS = "T_GlassCurtain", RIB = "T_GlassRibbon", PNL = "T_PanelMetal", CON = "T_ConcreteDark",
+	TEC = "T_TechPanel", MEC = "T_Mechanical", ROF = "T_RoofDeck", STL = "T_Steel", LOU = "T_Louver",
+	TWN = "T_TowerNight",
+}
+
+local function v3(t): Vector3
+	return Vector3.new(t[1], t[2], t[3])
+end
+
+local function keyOf(name: string): string?
+	-- "A_N_05_Zakkyo__GLS_2" -> "GLS", "..__NEON_CYN" -> "NEON_CYN"
+	local k = string.match(name, "__([%u_]+)$")
+	if not k then
+		return nil
+	end
+	k = string.gsub(k, "_%d+$", "")
+	return k
+end
+
+local function findPart(pattern: string): BasePart?
+	for _, d in ipairs(workspace:GetDescendants()) do
+		if d:IsA("BasePart") and string.find(d.Name, pattern, 1, true) then
+			return d
+		end
+	end
+	return nil
+end
+
+local function topModel(inst: Instance): Instance
+	local m = inst
+	while m.Parent and m.Parent ~= workspace do
+		m = m.Parent :: Instance
+	end
+	return m
+end
+
+local function textureOf(p: BasePart): string?
+	if p:IsA("MeshPart") and p.TextureID ~= "" then
+		return p.TextureID
+	end
+	local sa = p:FindFirstChildOfClass("SurfaceAppearance")
+	if sa then
+		local ok, map = pcall(function()
+			return (sa :: any).ColorMap
+		end)
+		if ok and map and map ~= "" then
+			return map
+		end
+	end
+	return nil
+end
+
+-- 1. alignment -------------------------------------------------------------------------
+local function align()
+	local mA = findPart("HEX_ALIGN_A")
+	local mB = findPart("HEX_ALIGN_B")
+	if not mA then
+		warn("[HEX] HEX_ALIGN_A not found - import HEX_Cyberpunk_City_A.fbx first")
+		return nil
+	end
+	local k = mA.Size.Y / Data.markerSize
+	if mB then
+		local modelB = topModel(mB)
+		local delta = mA.Position - mB.Position
+		if delta.Magnitude > 0.01 and modelB:IsA("PVInstance") then
+			(modelB :: any):PivotTo((modelB :: any):GetPivot() + delta)
+			print(string.format("[HEX] moved city B by %.2f studs to share city A's origin", delta.Magnitude))
+		end
+		if math.abs(mB.Size.Y / Data.markerSize - k) > 0.01 then
+			warn("[HEX] A and B were imported with different scales - re-import both with the same settings")
+		end
+	else
+		warn("[HEX] HEX_ALIGN_B not found - import HEX_Cyberpunk_City_B.fbx for the midground and skyline")
+	end
+	if math.abs(k - 1) > 0.01 then
+		warn(string.format("[HEX] the import was rescaled x%.3f (expected 1 stud = 1 unit); data positions follow it", k))
+	end
+	for _, m in ipairs({ mA, mB }) do
+		if m then
+			m.Transparency = 1
+			m.CanCollide = false
+			m.CanQuery = false
+			m.CanTouch = false
+		end
+	end
+	local origin = mA.Position
+	local expected = v3(Data.markerA)
+	return function(p: Vector3): Vector3
+		return origin + (p - expected) * k
+	end, k, topModel(mA), mB and topModel(mB) or nil
+end
+
+-- 2. materials --------------------------------------------------------------------------
+local function styleParts(root: Instance, isB: boolean)
+	local counts = { neon = 0, textured = 0, fallback = 0 }
+	for _, d in ipairs(root:GetDescendants()) do
+		if not d:IsA("BasePart") then
+			continue
+		end
+		local p = d :: BasePart
+		p.Anchored = true
+		local key = keyOf(p.Name)
+		if isB and not Config.CollideFileB then
+			p.CanCollide = false
+		end
+		if key == nil then
+			continue
+		end
+		local neon = Config.NeonColors[key]
+		if neon then
+			if p:IsA("MeshPart") then
+				pcall(function()
+					(p :: MeshPart).TextureID = ""
+				end)
+			end
+			local sa = p:FindFirstChildOfClass("SurfaceAppearance")
+			if sa then
+				sa:Destroy()
+			end
+			p.Material = Enum.Material.Neon
+			p.Color = neon
+			p.CastShadow = false
+			p.CanCollide = false
+			p.CanTouch = false
+			p.CanQuery = false
+			if string.sub(key, 1, 4) == "WIN_" then
+				p.Transparency = Config.WindowTransparency
+			end
+			if string.sub(key, 1, 5) == "NEON_" then
+				CollectionService:AddTag(p, "HEX_Neon")
+			end
+			counts.neon += 1
+		elseif key == "SGH" or key == "SGV" then
+			p.CanCollide = false
+			p.CastShadow = false
+			p.Material = Enum.Material.SmoothPlastic
+		elseif TEXKEY[key] then
+			local hasTex = textureOf(p) ~= nil
+			local ids = Config.SurfaceTextures[TEXKEY[key]]
+			if not hasTex and ids and p:IsA("MeshPart") then
+				local ok = pcall(function()
+					local sa = Instance.new("SurfaceAppearance")
+					sa.ColorMap = ids.Color
+					sa.NormalMap = ids.Normal
+					sa.RoughnessMap = ids.Roughness
+					sa.MetalnessMap = ids.Metalness
+					sa.Parent = p
+				end)
+				hasTex = ok
+			end
+			if hasTex then
+				counts.textured += 1
+			else
+				local fb = Config.Fallback[key]
+				if fb then
+					p.Material = fb[1]
+					p.Color = fb[2]
+					p.Reflectance = fb[3]
+				end
+				counts.fallback += 1
+			end
+			if key == "MEC" or key == "STL" then
+				p.CanCollide = p.CanCollide and p.Size.Magnitude > 6
+			end
+		end
+	end
+	return counts
+end
+
+-- 3. screens ----------------------------------------------------------------------------
+local function makeScreens(T: (Vector3) -> Vector3, k: number, folder: Folder)
+	local parts: { [string]: BasePart } = {}
+	for _, d in ipairs(workspace:GetDescendants()) do
+		if d:IsA("BasePart") and string.sub(d.Name, 1, 4) == "SCR_" then
+			parts[d.Name] = d
+		end
+	end
+	-- image id per ad (from any screen showing it, or Config.AdImages)
+	local adImage: { [string]: string } = {}
+	for name, rec in pairs(Data.screens) do
+		local p = parts[name]
+		local img = p and textureOf(p)
+		if img then
+			adImage[rec.ad] = img
+		end
+	end
+	for ad, id in pairs(Config.AdImages) do
+		adImage[ad] = id
+	end
+	local made, missing = 0, 0
+	for name, rec in pairs(Data.screens) do
+		local img = adImage[rec.ad]
+		local video = Config.Videos[name]
+		if not img and not video then
+			missing += 1
+			continue
+		end
+		local size = Data.ads[rec.ad] or { 1024, 512 }
+		local p = parts[name]
+		if p then
+			p.CanCollide = false
+			p.CastShadow = false
+		end
+		for i, pd in ipairs(rec.panels) do
+			local n = v3(pd.n).Unit
+			local right = v3(pd.r).Unit
+			local up = right:Cross(n).Unit * -1
+			if up.Y < 0 then
+				up = -up
+			end
+			local pos = T(v3(pd.c)) + n * 0.08 * k
+			local anchor = Instance.new("Part")
+			anchor.Name = name .. "_gui" .. i
+			anchor.Anchored = true
+			anchor.CanCollide = false
+			anchor.CanTouch = false
+			anchor.CanQuery = false
+			anchor.CastShadow = false
+			anchor.Transparency = 1
+			anchor.Size = Vector3.new(pd.w * k, pd.h * k, 0.05)
+			-- LookVector = n (Front faces outwards); GUI +X runs along the screen's right
+			anchor.CFrame = CFrame.fromMatrix(pos, -right, up)
+			local gui = Instance.new("SurfaceGui")
+			gui.Face = Enum.NormalId.Front
+			gui.LightInfluence = 0
+			gui.Brightness = Config.ScreenBrightness
+			gui.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
+			local pw = math.max(64, math.floor(size[1] * (pd.u1 - pd.u0)))
+			gui.CanvasSize = Vector2.new(pw, math.floor(pw * pd.h / pd.w))
+			gui.ClipsDescendants = true
+			if video then
+				local vf = Instance.new("VideoFrame")
+				vf.Size = UDim2.fromScale(1 / (pd.u1 - pd.u0), 1)
+				vf.Position = UDim2.fromScale(-pd.u0 / (pd.u1 - pd.u0), 0)
+				vf.Video = video
+				vf.Looped = true
+				vf.Playing = true
+				vf.BackgroundTransparency = 1
+				vf.Parent = gui
+			else
+				local il = Instance.new("ImageLabel")
+				il.Name = "Ad"
+				il.Size = UDim2.fromScale(1, 1)
+				il.BackgroundColor3 = Color3.new(0, 0, 0)
+				il.BorderSizePixel = 0
+				il.Image = img :: string
+				il.ImageRectOffset = Vector2.new(size[1] * pd.u0, 0)
+				il.ImageRectSize = Vector2.new(size[1] * (pd.u1 - pd.u0), size[2])
+				if rec.kind == "holo" then
+					il.BackgroundTransparency = 1
+					il.ImageTransparency = Config.HoloTransparency
+				end
+				il.Parent = gui
+				local scan = Instance.new("Frame")
+				scan.Name = "Scan"
+				scan.BorderSizePixel = 0
+				scan.BackgroundColor3 = Color3.new(1, 1, 1)
+				scan.BackgroundTransparency = 0.88
+				scan.Size = UDim2.fromScale(1, 0.035)
+				scan.ZIndex = 2
+				scan.Parent = gui
+			end
+			gui.Parent = anchor
+			anchor:SetAttribute("Ad", rec.ad)
+			anchor:SetAttribute("Kind", rec.kind)
+			anchor:SetAttribute("Screen", name)
+			anchor:SetAttribute("Panel", i)
+			anchor:SetAttribute("Panels", #rec.panels)
+			anchor:SetAttribute("Rotate", Config.RotateKinds[rec.kind] == true)
+			CollectionService:AddTag(anchor, "HEX_Screen")
+			anchor.Parent = folder
+			made += 1
+		end
+	end
+	-- pool of ad images per aspect ratio (for rotating billboards)
+	local pool = Instance.new("Folder")
+	pool.Name = "AdPool"
+	for ad, id in pairs(adImage) do
+		local sv = Instance.new("StringValue")
+		sv.Name = ad
+		sv.Value = id
+		local sz = Data.ads[ad]
+		if sz then
+			sv:SetAttribute("Aspect", math.floor(sz[1] / sz[2] * 100 + 0.5) / 100)
+			sv:SetAttribute("W", sz[1])
+			sv:SetAttribute("H", sz[2])
+		end
+		sv.Parent = pool
+	end
+	pool.Parent = folder
+	return made, missing
+end
+
+-- 4. lights -----------------------------------------------------------------------------
+local function makeLights(T: (Vector3) -> Vector3, k: number, folder: Folder)
+	local n = 0
+	for _, L in ipairs(Data.lights) do
+		if n >= Config.MaxLights then
+			break
+		end
+		local isShop = string.find(L.name or "", "_shop", 1, true) ~= nil
+		if (isShop and not Config.ShopLights) or (L.kind == "surface" and not Config.ScreenSurfaceLights) then
+			continue
+		end
+		local a = Instance.new("Part")
+		a.Name = "HEX_Light"
+		a.Anchored = true
+		a.CanCollide = false
+		a.CanTouch = false
+		a.CanQuery = false
+		a.CastShadow = false
+		a.Transparency = 1
+		a.Size = Vector3.one * 0.4
+		local pos = T(v3(L.pos))
+		local color = Color3.fromRGB(L.color[1], L.color[2], L.color[3])
+		if L.dir then
+			a.CFrame = CFrame.lookAt(pos, pos + v3(L.dir))
+		else
+			a.CFrame = CFrame.new(pos)
+		end
+		local light: Light
+		if L.kind == "spot" then
+			local s = Instance.new("SpotLight")
+			s.Face = Enum.NormalId.Front
+			s.Angle = L.angle or 70
+			s.Shadows = true
+			light = s
+		elseif L.kind == "surface" then
+			local s = Instance.new("SurfaceLight")
+			s.Face = Enum.NormalId.Front
+			s.Angle = 90
+			light = s
+		else
+			light = Instance.new("PointLight")
+		end
+		light.Color = color
+		light.Brightness = if L.kind == "spot" then Config.CourtFloodBrightness else L.brightness;
+		(light :: any).Range = math.min(60, L.range * k)
+		light.Parent = a
+		a.Parent = folder
+		n += 1
+	end
+	return n
+end
+
+-- 5. lighting ---------------------------------------------------------------------------
+local function setupLighting()
+	Lighting.ClockTime = Config.ClockTime
+	Lighting.Brightness = 1.2
+	Lighting.Ambient = Config.Ambient
+	Lighting.OutdoorAmbient = Config.OutdoorAmbient
+	Lighting.EnvironmentDiffuseScale = 0.45
+	Lighting.EnvironmentSpecularScale = 1
+	Lighting.GlobalShadows = true
+	Lighting.ExposureCompensation = 0.15
+	pcall(function()
+		(Lighting :: any).Technology = Enum.Technology.Future -- settable from Studio / command bar only
+	end)
+	for _, c in ipairs(Lighting:GetChildren()) do
+		if c.Name == "HEX_Atmosphere" or c.Name == "HEX_Bloom" or c.Name == "HEX_Color" or c:IsA("Atmosphere") then
+			c:Destroy()
+		end
+	end
+	local atm = Instance.new("Atmosphere")
+	atm.Name = "HEX_Atmosphere"
+	atm.Density = 0.3
+	atm.Offset = 0.12
+	atm.Color = Color3.fromRGB(96, 92, 170)
+	atm.Decay = Color3.fromRGB(80, 40, 120)
+	atm.Glare = 0
+	atm.Haze = 1.8
+	atm.Parent = Lighting
+	local bloom = Instance.new("BloomEffect")
+	bloom.Name = "HEX_Bloom"
+	bloom.Intensity = 0.9
+	bloom.Size = 28
+	bloom.Threshold = 0.92
+	bloom.Parent = Lighting
+	local cc = Instance.new("ColorCorrectionEffect")
+	cc.Name = "HEX_Color"
+	cc.Contrast = 0.12
+	cc.Saturation = 0.18
+	cc.TintColor = Color3.fromRGB(235, 232, 255)
+	cc.Parent = Lighting
+	local sky = Lighting:FindFirstChildOfClass("Sky")
+	if sky then
+		sky.CelestialBodiesShown = false
+		sky.StarCount = 400
+	end
+end
+
+function Setup.run()
+	local T, k, modelA, modelB = align()
+	if not T then
+		return
+	end
+	local old = workspace:FindFirstChild("HEX_CityFX")
+	if old then
+		old:Destroy()
+	end
+	local fx = Instance.new("Folder")
+	fx.Name = "HEX_CityFX"
+	fx.Parent = workspace
+	local cA = styleParts(modelA, false)
+	local cB = modelB and styleParts(modelB, true) or { neon = 0, textured = 0, fallback = 0 }
+	local screens = Instance.new("Folder")
+	screens.Name = "Screens"
+	screens.Parent = fx
+	local made, missing = makeScreens(T, k, screens)
+	local lights = Instance.new("Folder")
+	lights.Name = "Lights"
+	lights.Parent = fx
+	local nl = makeLights(T, k, lights)
+	if Config.ApplyLighting then
+		setupLighting()
+	end
+	print(string.format(
+		"[HEX] neon parts %d, textured %d, fallback-material %d | screen panels %d (%d screens without image) | lights %d",
+		cA.neon + cB.neon, cA.textured + cB.textured, cA.fallback + cB.fallback, made, missing, nl))
+end
+
+return Setup
+]]></ProtectedString>
+			</Properties>
+		</Item>
+		<Item class="ModuleScript" referent="RBX3">
+			<Properties>
+				<string name="Name">CityData</string>
+				<ProtectedString name="Source"><![CDATA[-- Generated by blender/cp2_build.py - HEX! Cyberpunk City v2 data (Roblox coordinates, studs).
+-- Positions assume both FBX files were imported without rescaling; CyberpunkSetup measures the
+-- HEX_ALIGN markers and corrects any offset / uniform scale automatically.
+return {
+	markerA = {0,-60,0}, markerB = {0,-60,0}, markerSize = 4,
+	screens = {
+		["SCR_A_E_01_Zakkyo_01"] = {ad="AD_SushiSpeed", kind="stack", layer=0, panels={{c={540.4,22.5,-372.134},n={-1,-0,0},r={0,0,1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_E_01_Zakkyo_02"] = {ad="AD_MegaSale", kind="stack", layer=0, panels={{c={540.4,31,-372.134},n={-1,-0,0},r={0,0,1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_E_01_Zakkyo_03"] = {ad="AD_MegaSale", kind="stack", layer=0, panels={{c={540.4,39.5,-372.134},n={-1,-0,0},r={0,0,1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_E_01_Zakkyo_04"] = {ad="AD_YumeOptics", kind="stack", layer=0, panels={{c={540.4,48,-372.134},n={-1,-0,0},r={0,0,1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_E_01_Zakkyo_05"] = {ad="AD_PlayHex", kind="rooftop", layer=0, panels={{c={548.4,160.139,-373.38},n={-1,-0,0},r={0,0,1},w=32.041,h=16.02,u0=0,u1=1}}},
+		["SCR_A_E_02_Mansion_01"] = {ad="AD_AkaiMotors", kind="rooftop", layer=0, panels={{c={546.35,127.746,-341.288},n={-1,-0,0},r={0,0,1},w=47.543,h=23.771,u0=0,u1=1}}},
+		["SCR_A_E_02_Mansion_02"] = {ad="AD_PlayHex", kind="crown", layer=0, panels={{c={590.736,131.736,-337.918},n={-1,-0,0},r={0,0,1},w=24.943,h=12.471,u0=0,u1=1}}},
+		["SCR_A_E_03_Zakkyo_01"] = {ad="AD_MindUpload", kind="rooftop", layer=0, panels={{c={547.2,97.607,-313.025},n={-1,-0,0},r={0,0,1},w=25.638,h=12.819,u0=0,u1=1}}},
+		["SCR_A_E_04_Pencil_01H"] = {ad="AD_HoloKoi", kind="holo", layer=0, panels={{c={542.6,46,-293.959},n={-0,-0,-1},r={-1,-0,0},w=5,h=40,u0=0,u1=1}}},
+		["SCR_A_E_04_Pencil_02H"] = {ad="AD_Cyber", kind="holo", layer=0, panels={{c={542.6,46,-293.159},n={0,0,1},r={1,0,-0},w=5,h=40,u0=0,u1=1}}},
+		["SCR_A_E_07_Arcade_01"] = {ad="AD_TipOff", kind="storefront", layer=0, panels={{c={545.3,12.301,-247.347},n={-1,-0,0},r={0,0,1},w=8.005,h=2.001,u0=0,u1=1}}},
+		["SCR_A_E_07_Arcade_02"] = {ad="AD_NewsTicker", kind="storefront", layer=0, panels={{c={545.3,12.304,-227.523},n={-1,-0,0},r={0,0,1},w=8.03,h=2.007,u0=0,u1=1}}},
+		["SCR_A_E_07_Arcade_03"] = {ad="AD_SynthFM", kind="arcade", layer=0, panels={{c={547.9,66.05,-232.158},n={-1,-0,0},r={0,0,1},w=23.798,h=11.899,u0=0,u1=1}}},
+		["SCR_A_E_07_Arcade_04"] = {ad="AD_HoloKoi", kind="holo", layer=0, panels={{c={547.9,29.586,-247.704},n={-1,-0,0},r={0,0,1},w=5.293,h=21.172,u0=0,u1=1}}},
+		["SCR_A_E_07_Arcade_05"] = {ad="AD_Tokyo2099", kind="holo", layer=0, panels={{c={547.9,29.586,-216.613},n={-1,-0,0},r={0,0,1},w=5.293,h=21.172,u0=0,u1=1}}},
+		["SCR_A_E_07_Arcade_06"] = {ad="AD_KoiAir", kind="ticker", layer=0, panels={{c={547.9,21.975,-232.158},n={-1,-0,0},r={0,0,1},w=23.798,h=5.95,u0=0,u1=1}}},
+		["SCR_A_E_08_Zakkyo_01"] = {ad="AD_SynthFM", kind="stack", layer=0, panels={{c={539.2,22.5,-195.438},n={-1,-0,0},r={0,0,1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_E_08_Zakkyo_02"] = {ad="AD_MindUpload", kind="stack", layer=0, panels={{c={539.2,31,-195.438},n={-1,-0,0},r={0,0,1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_E_09_Zakkyo_01"] = {ad="AD_VoltRunner", kind="cantilever", layer=0, panels={{c={540.9,85.959,-178.519},n={-1,-0,0},r={0,0,1},w=15.838,h=7.919,u0=0,u1=1}}},
+		["SCR_A_E_09_Zakkyo_02"] = {ad="AD_VoltRunner", kind="crown", layer=0, panels={{c={546.9,117.459,-178.519},n={-1,-0,0},r={0,0,1},w=15.838,h=7.919,u0=0,u1=1}}},
+		["SCR_A_E_11_Mansion_01"] = {ad="AD_KirinDeck", kind="cantilever", layer=0, panels={{c={538.85,99.75,-59.967},n={-1,-0,0},r={0,0,1},w=23.001,h=11.501,u0=0,u1=1}}},
+		["SCR_A_E_12_Pencil_01"] = {ad="AD_HoloDancer", kind="giant", layer=0, panels={{c={546.4,51.258,-38.434},n={-1,-0,0},r={0,0,1},w=6.217,h=24.87,u0=0,u1=1}}},
+		["SCR_A_E_13_Louver_01"] = {ad="AD_SushiSpeed", kind="cantilever", layer=0, panels={{c={537.2,98.982,-19.381},n={-1,-0,0},r={0,0,1},w=19.928,h=9.964,u0=0,u1=1}}},
+		["SCR_A_E_14_Mansion_01"] = {ad="AD_HexLeague", kind="stack", layer=0, panels={{c={542.35,22.5,5.06},n={-1,-0,0},r={0,0,1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_E_14_Mansion_02"] = {ad="AD_HexLeague", kind="stack", layer=0, panels={{c={542.35,31,5.06},n={-1,-0,0},r={0,0,1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_E_15_Arcade_01"] = {ad="AD_DataStream", kind="storefront", layer=0, panels={{c={545.5,12.048,69.04},n={-1,-0,0},r={0,0,1},w=5.982,h=1.496,u0=0,u1=1}}},
+		["SCR_A_E_15_Arcade_02"] = {ad="AD_YumeOptics", kind="arcade", layer=0, panels={{c={548.1,23.583,40.316},n={-1,-0,0},r={0,0,1},w=16.856,h=9.567,u0=0,u1=1}}},
+		["SCR_A_E_15_Arcade_03"] = {ad="AD_SakuraLink", kind="arcade", layer=0, panels={{c={548.1,34.75,40.316},n={-1,-0,0},r={0,0,1},w=16.856,h=9.567,u0=0,u1=1}}},
+		["SCR_A_E_15_Arcade_04"] = {ad="AD_YumeOptics", kind="arcade", layer=0, panels={{c={548.1,45.917,40.316},n={-1,-0,0},r={0,0,1},w=16.856,h=9.567,u0=0,u1=1}}},
+		["SCR_A_E_15_Arcade_05"] = {ad="AD_HexLeague", kind="arcade", layer=0, panels={{c={548.1,57.083,40.316},n={-1,-0,0},r={0,0,1},w=16.856,h=9.567,u0=0,u1=1}}},
+		["SCR_A_E_15_Arcade_06"] = {ad="AD_SakuraLink", kind="arcade", layer=0, panels={{c={548.1,68.25,40.316},n={-1,-0,0},r={0,0,1},w=16.856,h=9.567,u0=0,u1=1}}},
+		["SCR_A_E_15_Arcade_07"] = {ad="AD_KirinDeck", kind="arcade", layer=0, panels={{c={548.1,79.417,40.316},n={-1,-0,0},r={0,0,1},w=16.856,h=9.567,u0=0,u1=1}}},
+		["SCR_A_E_15_Arcade_08"] = {ad="AD_AkaiMotors", kind="arcade", layer=0, panels={{c={548.1,23.583,58.771},n={-1,-0,0},r={0,0,1},w=16.856,h=9.567,u0=0,u1=1}}},
+		["SCR_A_E_15_Arcade_09"] = {ad="AD_SakuraLink", kind="arcade", layer=0, panels={{c={548.1,34.75,58.771},n={-1,-0,0},r={0,0,1},w=16.856,h=9.567,u0=0,u1=1}}},
+		["SCR_A_E_15_Arcade_10"] = {ad="AD_MegaSale", kind="arcade", layer=0, panels={{c={548.1,45.917,58.771},n={-1,-0,0},r={0,0,1},w=16.856,h=9.567,u0=0,u1=1}}},
+		["SCR_A_E_15_Arcade_11"] = {ad="AD_SynthFM", kind="arcade", layer=0, panels={{c={548.1,57.083,58.771},n={-1,-0,0},r={0,0,1},w=16.856,h=9.567,u0=0,u1=1}}},
+		["SCR_A_E_15_Arcade_12"] = {ad="AD_HexLeague", kind="arcade", layer=0, panels={{c={548.1,68.25,58.771},n={-1,-0,0},r={0,0,1},w=16.856,h=9.567,u0=0,u1=1}}},
+		["SCR_A_E_15_Arcade_13"] = {ad="AD_KirinDeck", kind="arcade", layer=0, panels={{c={548.1,79.417,58.771},n={-1,-0,0},r={0,0,1},w=16.856,h=9.567,u0=0,u1=1}}},
+		["SCR_A_E_15_Arcade_14"] = {ad="AD_KirinDeck", kind="arcade", layer=0, panels={{c={548.1,23.583,77.227},n={-1,-0,0},r={0,0,1},w=16.856,h=9.567,u0=0,u1=1}}},
+		["SCR_A_E_15_Arcade_15"] = {ad="AD_SynthFM", kind="arcade", layer=0, panels={{c={548.1,34.75,77.227},n={-1,-0,0},r={0,0,1},w=16.856,h=9.567,u0=0,u1=1}}},
+		["SCR_A_E_15_Arcade_16"] = {ad="AD_VoltRunner", kind="arcade", layer=0, panels={{c={548.1,45.917,77.227},n={-1,-0,0},r={0,0,1},w=16.856,h=9.567,u0=0,u1=1}}},
+		["SCR_A_E_15_Arcade_17"] = {ad="AD_SakuraLink", kind="arcade", layer=0, panels={{c={548.1,57.083,77.227},n={-1,-0,0},r={0,0,1},w=16.856,h=9.567,u0=0,u1=1}}},
+		["SCR_A_E_15_Arcade_18"] = {ad="AD_PlayHex", kind="arcade", layer=0, panels={{c={548.1,68.25,77.227},n={-1,-0,0},r={0,0,1},w=16.856,h=9.567,u0=0,u1=1}}},
+		["SCR_A_E_15_Arcade_19"] = {ad="AD_YumeOptics", kind="arcade", layer=0, panels={{c={548.1,79.417,77.227},n={-1,-0,0},r={0,0,1},w=16.856,h=9.567,u0=0,u1=1}}},
+		["SCR_A_E_16_Mansion_01"] = {ad="AD_MiraiBank", kind="storefront", layer=0, panels={{c={542.95,12.54,104.638},n={-1,-0,0},r={0,0,1},w=9.921,h=2.48,u0=0,u1=1}}},
+		["SCR_A_E_17_Zakkyo_01"] = {ad="AD_AkaiMotors", kind="stack", layer=0, panels={{c={544.9,22.5,129.866},n={-1,-0,0},r={0,0,1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_E_17_Zakkyo_02"] = {ad="AD_SushiSpeed", kind="stack", layer=0, panels={{c={544.9,31,129.866},n={-1,-0,0},r={0,0,1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_E_17_Zakkyo_03"] = {ad="AD_PlayHex", kind="stack", layer=0, panels={{c={544.9,39.5,129.866},n={-1,-0,0},r={0,0,1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_E_17_Zakkyo_04"] = {ad="AD_AkaiMotors", kind="stack", layer=0, panels={{c={544.9,48,129.866},n={-1,-0,0},r={0,0,1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_E_18_LMGlassEnt_01"] = {ad="AD_DenkiCola", kind="giant", layer=0, panels={{c={547.3,78.6,170},n={-1,-0,0},r={0,0,1},w=36.6,h=73.2,u0=0,u1=1}}},
+		["SCR_A_E_18_LMGlassEnt_02"] = {ad="AD_MegaSale", kind="layered", layer=1, panels={{c={540.8,41.5,156.7},n={-1,-0,0},r={0,0,1},w=22,h=11,u0=0,u1=1}}},
+		["SCR_A_E_18_LMGlassEnt_03"] = {ad="AD_VoltRunner", kind="sky", layer=0, panels={{c={538.3,225,170},n={-1,-0,0},r={0,0,1},w=80,h=40,u0=0,u1=1}}},
+		["SCR_A_E_19_Mansion_01"] = {ad="AD_MindUpload", kind="stack", layer=0, panels={{c={542.35,34.5,207.991},n={-1,-0,0},r={0,0,1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_E_19_Mansion_02"] = {ad="AD_YumeOptics", kind="stack", layer=0, panels={{c={542.35,43,207.991},n={-1,-0,0},r={0,0,1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_E_19_Mansion_03"] = {ad="AD_SushiSpeed", kind="stack", layer=0, panels={{c={542.35,51.5,207.991},n={-1,-0,0},r={0,0,1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_E_19_Mansion_04"] = {ad="AD_SynthFM", kind="stack", layer=0, panels={{c={542.35,60,207.991},n={-1,-0,0},r={0,0,1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_E_19_Mansion_05"] = {ad="AD_VoltRunner", kind="crown", layer=0, panels={{c={544.85,158.598,217.346},n={-1,-0,0},r={0,0,1},w=36.392,h=18.196,u0=0,u1=1}}},
+		["SCR_A_E_19_Mansion_06"] = {ad="AD_MegaSale", kind="rooftop", layer=0, panels={{c={546.35,167.281,217.346},n={-1,-0,0},r={0,0,1},w=48.392,h=24.196,u0=0,u1=1}}},
+		["SCR_A_E_20_Zakkyo_01"] = {ad="AD_NewsTicker", kind="storefront", layer=0, panels={{c={545,11.98,250.249},n={-1,-0,0},r={0,0,1},w=5.442,h=1.361,u0=0,u1=1}}},
+		["SCR_A_E_20_Zakkyo_02"] = {ad="AD_SushiSpeed", kind="cantilever", layer=0, panels={{c={538.4,73.485,249.148},n={-1,-0,0},r={0,0,1},w=13.939,h=6.97,u0=0,u1=1}}},
+		["SCR_A_E_21_Modern_01"] = {ad="AD_RamenIchiban", kind="storefront", layer=0, panels={{c={544.5,12.33,285.004},n={-1,-0,0},r={0,0,1},w=8.242,h=2.061,u0=0,u1=1}}},
+		["SCR_A_E_21_Modern_02"] = {ad="AD_MindUpload", kind="rooftop", layer=0, panels={{c={547.9,164.556,282.436},n={-1,-0,0},r={0,0,1},w=53.011,h=26.506,u0=0,u1=1}}},
+		["SCR_A_E_22_Mansion_01"] = {ad="AD_KoiAir", kind="storefront", layer=0, panels={{c={542.95,12.594,328.238},n={-1,-0,0},r={0,0,1},w=10.356,h=2.589,u0=0,u1=1}}},
+		["SCR_A_E_22_Mansion_02"] = {ad="AD_AikoLive", kind="giant", layer=0, panels={{c={544.95,62,330.674},n={-1,-0,0},r={0,0,1},w=28.988,h=56,u0=0,u1=1}}},
+		["SCR_A_E_23_Louver_01"] = {ad="AD_MiraiBank", kind="storefront", layer=0, panels={{c={543.8,12.162,364.051},n={-1,-0,0},r={0,0,1},w=6.893,h=1.723,u0=0,u1=1}}},
+		["SCR_A_E_23_Louver_02"] = {ad="AD_TipOff", kind="storefront", layer=0, panels={{c={543.8,11.85,381.698},n={-1,-0,0},r={0,0,1},w=4.403,h=1.101,u0=0,u1=1}}},
+		["SCR_A_N_01_Louver_01"] = {ad="AD_MindUpload", kind="stack", layer=0, panels={{c={-449.463,34.5,-459},n={-0,-0,1},r={1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_N_01_Louver_02"] = {ad="AD_SakuraLink", kind="stack", layer=0, panels={{c={-449.463,43,-459},n={-0,-0,1},r={1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_N_01_Louver_03"] = {ad="AD_SynthFM", kind="stack", layer=0, panels={{c={-449.463,51.5,-459},n={-0,-0,1},r={1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_N_01_Louver_04"] = {ad="AD_PlayHex", kind="stack", layer=0, panels={{c={-449.463,60,-459},n={-0,-0,1},r={1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_N_02_Mansion_01"] = {ad="AD_SakuraLink", kind="giant", layer=0, panels={{c={-423.492,29.301,-459.95},n={-0,-0,1},r={1,0,-0},w=29.204,h=14.602,u0=0,u1=1}}},
+		["SCR_A_N_03_Zakkyo_01"] = {ad="AD_VoltRunner", kind="stack", layer=0, panels={{c={-392.18,22.5,-454.2},n={-0,-0,1},r={1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_N_03_Zakkyo_02"] = {ad="AD_HexLeague", kind="stack", layer=0, panels={{c={-392.18,31,-454.2},n={-0,-0,1},r={1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_N_04_Low_01"] = {ad="AD_RamenIchiban", kind="storefront", layer=0, panels={{c={-374.287,12.784,-458.8},n={-0,-0,1},r={1,0,-0},w=11.876,h=2.969,u0=0,u1=1}}},
+		["SCR_A_N_04_Low_02"] = {ad="AD_NanoMed", kind="storefront", layer=0, panels={{c={-361.523,12.481,-458.8},n={-0,-0,1},r={1,0,-0},w=9.451,h=2.363,u0=0,u1=1}}},
+		["SCR_A_N_04_Low_03"] = {ad="AD_HexLeague", kind="rooftop", layer=0, panels={{c={-368.511,42.392,-463.2},n={-0,-0,1},r={1,0,-0},w=24.427,h=12.213,u0=0,u1=1}}},
+		["SCR_A_N_05_Zakkyo_01"] = {ad="AD_KoiAir", kind="storefront", layer=0, panels={{c={-351.378,12.192,-460},n={-0,-0,1},r={1,0,-0},w=7.138,h=1.785,u0=0,u1=1}}},
+		["SCR_A_N_05_Zakkyo_02"] = {ad="AD_RamenIchiban", kind="storefront", layer=0, panels={{c={-342.494,12.104,-460},n={-0,-0,1},r={1,0,-0},w=6.431,h=1.608,u0=0,u1=1}}},
+		["SCR_A_N_05_Zakkyo_03"] = {ad="AD_NexusAndroids", kind="giant", layer=0, panels={{c={-339.799,59.298,-459.5},n={-0,-0,1},r={1,0,-0},w=25.298,h=50.595,u0=0,u1=1}}},
+		["SCR_A_N_06_Modern_01"] = {ad="AD_MindUpload", kind="rooftop", layer=0, panels={{c={-296.803,148.439,-470.424},n={-0,-0,1},r={1,0,-0},w=33.754,h=16.877,u0=0,u1=1}}},
+		["SCR_A_N_07_Pencil_01"] = {ad="AD_HoloDancer", kind="giant", layer=0, panels={{c={-269.195,117.275,-459.878},n={-0,-0,1},r={1,0,-0},w=8,h=32,u0=0,u1=1}}},
+		["SCR_A_N_08_Zakkyo_01"] = {ad="AD_PlayHex", kind="stack", layer=0, panels={{c={-242.76,22.5,-458.2},n={-0,-0,1},r={1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_N_08_Zakkyo_02"] = {ad="AD_SushiSpeed", kind="stack", layer=0, panels={{c={-242.76,31,-458.2},n={-0,-0,1},r={1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_N_08_Zakkyo_03"] = {ad="AD_YumeOptics", kind="stack", layer=0, panels={{c={-242.76,39.5,-458.2},n={-0,-0,1},r={1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_N_09_Low_01"] = {ad="AD_TipOff", kind="storefront", layer=0, panels={{c={-213.209,11.836,-460},n={-0,-0,1},r={1,0,-0},w=4.286,h=1.072,u0=0,u1=1}}},
+		["SCR_A_N_09_Low_02"] = {ad="AD_KirinDeck", kind="rooftop", layer=0, panels={{c={-222.945,55.384,-464.4},n={-0,-0,1},r={1,0,-0},w=24.759,h=12.379,u0=0,u1=1}}},
+		["SCR_A_N_10_Pencil_01"] = {ad="AD_MatchaPlus", kind="giant", layer=0, panels={{c={-201.217,54.832,-461.7},n={-0,-0,1},r={1,0,-0},w=8,h=32,u0=0,u1=1}}},
+		["SCR_A_N_11_Pencil_01H"] = {ad="AD_BladeEdge", kind="holo", layer=0, panels={{c={-176.705,46,-455.547},n={-1,-0,0},r={-0,-0,1},w=5,h=40,u0=0,u1=1}}},
+		["SCR_A_N_11_Pencil_02H"] = {ad="AD_Tokyo2099", kind="holo", layer=0, panels={{c={-175.905,46,-455.547},n={1,0,-0},r={0,0,-1},w=5,h=40,u0=0,u1=1}}},
+		["SCR_A_N_12_Arcade_01"] = {ad="AD_AkaiMotors", kind="arcade", layer=0, panels={{c={-161.646,24.7,-463.1},n={-0,-0,1},r={1,0,-0},w=19.819,h=11.8,u0=0,u1=1}}},
+		["SCR_A_N_12_Arcade_02"] = {ad="AD_AkaiMotors", kind="arcade", layer=0, panels={{c={-161.646,38.1,-463.1},n={-0,-0,1},r={1,0,-0},w=19.819,h=11.8,u0=0,u1=1}}},
+		["SCR_A_N_12_Arcade_03"] = {ad="AD_SushiSpeed", kind="arcade", layer=0, panels={{c={-161.646,51.5,-463.1},n={-0,-0,1},r={1,0,-0},w=19.819,h=11.8,u0=0,u1=1}}},
+		["SCR_A_N_12_Arcade_04"] = {ad="AD_PlayHex", kind="arcade", layer=0, panels={{c={-161.646,64.9,-463.1},n={-0,-0,1},r={1,0,-0},w=19.819,h=11.8,u0=0,u1=1}}},
+		["SCR_A_N_12_Arcade_05"] = {ad="AD_MegaSale", kind="arcade", layer=0, panels={{c={-161.646,78.3,-463.1},n={-0,-0,1},r={1,0,-0},w=19.819,h=11.8,u0=0,u1=1}}},
+		["SCR_A_N_12_Arcade_06"] = {ad="AD_KirinDeck", kind="arcade", layer=0, panels={{c={-140.227,24.7,-463.1},n={-0,-0,1},r={1,0,-0},w=19.819,h=11.8,u0=0,u1=1}}},
+		["SCR_A_N_12_Arcade_07"] = {ad="AD_PlayHex", kind="arcade", layer=0, panels={{c={-140.227,38.1,-463.1},n={-0,-0,1},r={1,0,-0},w=19.819,h=11.8,u0=0,u1=1}}},
+		["SCR_A_N_12_Arcade_08"] = {ad="AD_YumeOptics", kind="arcade", layer=0, panels={{c={-140.227,51.5,-463.1},n={-0,-0,1},r={1,0,-0},w=19.819,h=11.8,u0=0,u1=1}}},
+		["SCR_A_N_12_Arcade_09"] = {ad="AD_YumeOptics", kind="arcade", layer=0, panels={{c={-140.227,64.9,-463.1},n={-0,-0,1},r={1,0,-0},w=19.819,h=11.8,u0=0,u1=1}}},
+		["SCR_A_N_12_Arcade_10"] = {ad="AD_SynthFM", kind="arcade", layer=0, panels={{c={-140.227,78.3,-463.1},n={-0,-0,1},r={1,0,-0},w=19.819,h=11.8,u0=0,u1=1}}},
+		["SCR_A_N_13_Low_01"] = {ad="AD_KirinDeck", kind="rooftop", layer=0, panels={{c={-111.164,63.631,-463.2},n={-0,-0,1},r={1,0,-0},w=24.446,h=12.223,u0=0,u1=1}}},
+		["SCR_A_N_14_Zakkyo_01"] = {ad="AD_MiraiBank", kind="storefront", layer=0, panels={{c={-92.056,12.684,-460},n={-0,-0,1},r={1,0,-0},w=11.069,h=2.767,u0=0,u1=1}}},
+		["SCR_A_N_15_Pencil_01"] = {ad="AD_MatchaPlus", kind="giant", layer=0, panels={{c={-66.108,85.44,-461.85},n={-0,-0,1},r={1,0,-0},w=6.408,h=25.634,u0=0,u1=1}}},
+		["SCR_A_N_16_Zakkyo_01"] = {ad="AD_MatchaPlus", kind="giant", layer=0, panels={{c={-52.118,78.141,-461.4},n={-0,-0,1},r={1,0,-0},w=5.919,h=23.674,u0=0,u1=1}}},
+		["SCR_A_N_17_LMStacked_01"] = {ad="AD_NoirParfum", kind="giant", layer=0, panels={{c={-30,58.776,-461.5},n={-0,-0,1},r={1,0,-0},w=16.776,h=33.552,u0=0,u1=1}}},
+		["SCR_A_N_17_LMStacked_02"] = {ad="AD_SakuraLink", kind="layered", layer=1, panels={{c={-33.388,41.5,-455},n={-0,-0,1},r={1,0,-0},w=22,h=11,u0=0,u1=1}}},
+		["SCR_A_N_17_LMStacked_03"] = {ad="AD_HexLeague", kind="sky", layer=0, panels={{c={-30,225,-452.5},n={-0,-0,1},r={1,0,-0},w=80,h=40,u0=0,u1=1}}},
+		["SCR_A_N_18_Zakkyo_01"] = {ad="AD_Tokyo2099", kind="giant", layer=0, panels={{c={-6.44,45.006,-460.2},n={-0,-0,1},r={1,0,-0},w=7.82,h=31.278,u0=0,u1=1}}},
+		["SCR_A_N_19_Zakkyo_01"] = {ad="AD_NanoMed", kind="storefront", layer=0, panels={{c={18.747,12.152,-460},n={-0,-0,1},r={1,0,-0},w=6.815,h=1.704,u0=0,u1=1}}},
+		["SCR_A_N_21_Pencil_01"] = {ad="AD_DataStream", kind="storefront", layer=0, panels={{c={60.655,12.663,-460.45},n={-0,-0,1},r={1,0,-0},w=10.903,h=2.726,u0=0,u1=1}}},
+		["SCR_A_N_21_Pencil_02"] = {ad="AD_HoloDancer", kind="giant", layer=0, panels={{c={60.655,104.618,-461.85},n={-0,-0,1},r={1,0,-0},w=5.898,h=23.593,u0=0,u1=1}}},
+		["SCR_A_N_22_Modern_01"] = {ad="AD_KoiAir", kind="storefront", layer=0, panels={{c={83.351,12.04,-459.5},n={-0,-0,1},r={1,0,-0},w=5.918,h=1.479,u0=0,u1=1}}},
+		["SCR_A_N_22_Modern_02"] = {ad="AD_MindUpload", kind="stack", layer=0, panels={{c={91.284,22.5,-458.9},n={-0,-0,1},r={1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_N_22_Modern_03"] = {ad="AD_MindUpload", kind="stack", layer=0, panels={{c={91.284,31,-458.9},n={-0,-0,1},r={1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_N_22_Modern_04"] = {ad="AD_SakuraLink", kind="stack", layer=0, panels={{c={91.284,39.5,-458.9},n={-0,-0,1},r={1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_N_22_Modern_05"] = {ad="AD_MegaSale", kind="stack", layer=0, panels={{c={91.284,48,-458.9},n={-0,-0,1},r={1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_N_22_Modern_06"] = {ad="AD_KirinDeck", kind="crown", layer=0, panels={{c={79.227,166.264,-503.432},n={-0,-0,1},r={1,0,-0},w=19.057,h=9.528,u0=0,u1=1}}},
+		["SCR_A_N_23_Zakkyo_01H"] = {ad="AD_HoloKoi", kind="holo", layer=0, panels={{c={109.483,46,-457.3},n={-1,-0,0},r={-0,-0,1},w=5,h=40,u0=0,u1=1}}},
+		["SCR_A_N_23_Zakkyo_02H"] = {ad="AD_BladeEdge", kind="holo", layer=0, panels={{c={110.283,46,-457.3},n={1,0,-0},r={0,0,-1},w=5,h=40,u0=0,u1=1}}},
+		["SCR_A_N_24_Zakkyo_01"] = {ad="AD_NanoMed", kind="storefront", layer=0, panels={{c={202.136,12.196,-458.8},n={-0,-0,1},r={1,0,-0},w=7.172,h=1.793,u0=0,u1=1}}},
+		["SCR_A_N_24_Zakkyo_02"] = {ad="AD_SushiSpeed", kind="stack", layer=0, panels={{c={208.33,22.5,-458.2},n={-0,-0,1},r={1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_N_24_Zakkyo_03"] = {ad="AD_MegaSale", kind="stack", layer=0, panels={{c={208.33,31,-458.2},n={-0,-0,1},r={1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_N_24_Zakkyo_04"] = {ad="AD_VoltRunner", kind="stack", layer=0, panels={{c={208.33,39.5,-458.2},n={-0,-0,1},r={1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_N_24_Zakkyo_05"] = {ad="AD_SynthFM", kind="stack", layer=0, panels={{c={208.33,48,-458.2},n={-0,-0,1},r={1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_N_25_Mansion_01"] = {ad="AD_HexLeague", kind="crown", layer=0, panels={{c={233.353,227.249,-504.073},n={-0,-0,1},r={1,0,-0},w=22.995,h=11.497,u0=0,u1=1}}},
+		["SCR_A_N_26_Zakkyo_01"] = {ad="AD_AkaiMotors", kind="stack", layer=0, panels={{c={263.877,34.5,-458.2},n={-0,-0,1},r={1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_N_26_Zakkyo_02"] = {ad="AD_MegaSale", kind="stack", layer=0, panels={{c={263.877,43,-458.2},n={-0,-0,1},r={1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_N_26_Zakkyo_03"] = {ad="AD_YumeOptics", kind="rooftop", layer=0, panels={{c={263.022,171.228,-462.2},n={-0,-0,1},r={1,0,-0},w=31.045,h=15.522,u0=0,u1=1}}},
+		["SCR_A_N_28_Arcade_01"] = {ad="AD_HexLeague", kind="arcade", layer=0, panels={{c={332.626,89.381,-462.9},n={-0,-0,1},r={1,0,-0},w=26.475,h=13.238,u0=0,u1=1}}},
+		["SCR_A_N_28_Arcade_02"] = {ad="AD_BladeEdge", kind="holo", layer=0, panels={{c={315.332,31.227,-462.9},n={-0,-0,1},r={1,0,-0},w=6.113,h=24.454,u0=0,u1=1}}},
+		["SCR_A_N_28_Arcade_03"] = {ad="AD_Cyber", kind="holo", layer=0, panels={{c={349.92,31.227,-462.9},n={-0,-0,1},r={1,0,-0},w=6.113,h=24.454,u0=0,u1=1}}},
+		["SCR_A_N_28_Arcade_04"] = {ad="AD_MiraiBank", kind="ticker", layer=0, panels={{c={332.626,22.309,-462.9},n={-0,-0,1},r={1,0,-0},w=26.475,h=6.619,u0=0,u1=1}}},
+		["SCR_A_N_29_Zakkyo_01"] = {ad="AD_RamenIchiban", kind="storefront", layer=0, panels={{c={359.777,12.082,-458.18},n={-0,-0,1},r={1,0,-0},w=6.254,h=1.564,u0=0,u1=1}}},
+		["SCR_A_N_29_Zakkyo_02"] = {ad="AD_VoltRunner", kind="stack", layer=0, panels={{c={371.339,22.5,-457.58},n={-0,-0,1},r={1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_N_29_Zakkyo_03"] = {ad="AD_MindUpload", kind="stack", layer=0, panels={{c={371.339,31,-457.58},n={-0,-0,1},r={1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_N_29_Zakkyo_04"] = {ad="AD_VoltRunner", kind="rooftop", layer=0, panels={{c={370.643,118.342,-461.58},n={-0,-0,1},r={1,0,-0},w=38.985,h=19.493,u0=0,u1=1}}},
+		["SCR_A_N_29_Zakkyo_05"] = {ad="AD_SynthFM", kind="crown", layer=0, panels={{c={370.104,130.627,-492.679},n={-0,-0,1},r={1,0,-0},w=20.508,h=10.254,u0=0,u1=1}}},
+		["SCR_A_N_30_Pencil_01"] = {ad="AD_HoloDancer", kind="giant", layer=0, panels={{c={397.002,95.858,-460.2},n={-0,-0,1},r={1,0,-0},w=6.05,h=24.201,u0=0,u1=1}}},
+		["SCR_A_N_31_Mansion_01"] = {ad="AD_NanoMed", kind="storefront", layer=0, panels={{c={417.912,12.253,-457.95},n={-0,-0,1},r={1,0,-0},w=7.623,h=1.906,u0=0,u1=1}}},
+		["SCR_A_N_31_Mansion_02"] = {ad="AD_SushiSpeed", kind="cantilever", layer=0, panels={{c={422.291,113.646,-453.85},n={-0,-0,1},r={1,0,-0},w=30.582,h=15.291,u0=0,u1=1}}},
+		["SCR_A_N_31_Mansion_03"] = {ad="AD_SakuraLink", kind="rooftop", layer=0, panels={{c={422.291,150.908,-461.35},n={-0,-0,1},r={1,0,-0},w=43.837,h=21.919,u0=0,u1=1}}},
+		["SCR_A_N_32_Zakkyo_01"] = {ad="AD_AkaiMotors", kind="cantilever", layer=0, panels={{c={454.705,85.74,-453.4},n={-0,-0,1},r={1,0,-0},w=14.961,h=7.48,u0=0,u1=1}}},
+		["SCR_A_N_32_Zakkyo_02"] = {ad="AD_KirinDeck", kind="crown", layer=0, panels={{c={454.705,117.967,-459.4},n={-0,-0,1},r={1,0,-0},w=17.866,h=8.933,u0=0,u1=1}}},
+		["SCR_A_S_01_Zakkyo_01"] = {ad="AD_TipOff", kind="storefront", layer=0, panels={{c={463.731,12.592,458.8},n={-0,-0,-1},r={-1,0,-0},w=10.338,h=2.585,u0=0,u1=1}}},
+		["SCR_A_S_01_Zakkyo_02"] = {ad="AD_PlayHex", kind="stack", layer=0, panels={{c={461.666,22.5,455.7},n={-0,-0,-1},r={-1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_S_01_Zakkyo_03"] = {ad="AD_HexLeague", kind="stack", layer=0, panels={{c={461.666,31,455.7},n={-0,-0,-1},r={-1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_S_02_Mansion_01"] = {ad="AD_SakuraLink", kind="stack", layer=0, panels={{c={415.328,34.5,457.35},n={-0,-0,-1},r={-1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_S_02_Mansion_02"] = {ad="AD_VoltRunner", kind="stack", layer=0, panels={{c={415.328,43,457.35},n={-0,-0,-1},r={-1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_S_04_Pencil_01"] = {ad="AD_NewsTicker", kind="storefront", layer=0, panels={{c={368.975,12.588,458.8},n={-0,-0,-1},r={-1,0,-0},w=10.301,h=2.575,u0=0,u1=1}}},
+		["SCR_A_S_04_Pencil_02"] = {ad="AD_HoloKoi", kind="giant", layer=0, panels={{c={368.975,83.51,460.2},n={-0,-0,-1},r={-1,0,-0},w=5.513,h=22.05,u0=0,u1=1}}},
+		["SCR_A_S_05_Zakkyo_01"] = {ad="AD_DataStream", kind="storefront", layer=0, panels={{c={356.456,12.474,458.8},n={-0,-0,-1},r={-1,0,-0},w=9.392,h=2.348,u0=0,u1=1}}},
+		["SCR_A_S_06_Modern_01"] = {ad="AD_KoiAir", kind="storefront", layer=0, panels={{c={318.567,13.3,459.5},n={-0,-0,-1},r={-1,0,-0},w=16,h=4,u0=0,u1=1}}},
+		["SCR_A_S_07_LMRooftop_01"] = {ad="AD_NewsTicker", kind="storefront", layer=0, panels={{c={294.239,12.6,460},n={-0,-0,-1},r={-1,0,-0},w=10.397,h=2.599,u0=0,u1=1}}},
+		["SCR_A_S_07_LMRooftop_02"] = {ad="AD_ArashiSec", kind="giant", layer=0, panels={{c={280,79.7,462.4},n={-0,-0,-1},r={-1,0,-0},w=37.7,h=75.4,u0=0,u1=1}}},
+		["SCR_A_S_07_LMRooftop_03"] = {ad="AD_YumeOptics", kind="layered", layer=1, panels={{c={293.85,41.5,455.9},n={-0,-0,-1},r={-1,0,-0},w=22,h=11,u0=0,u1=1}}},
+		["SCR_A_S_07_LMRooftop_04"] = {ad="AD_NoirParfum", kind="sky", layer=0, panels={{c={280,284.7,453.4},n={-0,-0,-1},r={-1,0,-0},w=79.7,h=159.4,u0=0,u1=1}}},
+		["SCR_A_S_08_Zakkyo_01"] = {ad="AD_TipOff", kind="storefront", layer=0, panels={{c={244.135,12.604,460},n={-0,-0,-1},r={-1,0,-0},w=10.429,h=2.607,u0=0,u1=1}}},
+		["SCR_A_S_08_Zakkyo_02"] = {ad="AD_PlayHex", kind="rooftop", layer=0, panels={{c={238.827,175.81,463.4},n={-0,-0,-1},r={-1,0,-0},w=32.046,h=16.023,u0=0,u1=1}}},
+		["SCR_A_S_11_Modern_01"] = {ad="AD_NanoMed", kind="storefront", layer=0, panels={{c={146.175,13.3,460.4},n={-0,-0,-1},r={-1,0,-0},w=16,h=4,u0=0,u1=1}}},
+		["SCR_A_S_11_Modern_02"] = {ad="AD_MindUpload", kind="stack", layer=0, panels={{c={153.377,22.5,459.8},n={-0,-0,-1},r={-1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_S_11_Modern_03"] = {ad="AD_SushiSpeed", kind="stack", layer=0, panels={{c={153.377,31,459.8},n={-0,-0,-1},r={-1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_S_11_Modern_04"] = {ad="AD_SynthFM", kind="stack", layer=0, panels={{c={153.377,39.5,459.8},n={-0,-0,-1},r={-1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_S_11_Modern_05"] = {ad="AD_MegaSale", kind="stack", layer=0, panels={{c={153.377,48,459.8},n={-0,-0,-1},r={-1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_S_11_Modern_06"] = {ad="AD_AkaiMotors", kind="crown", layer=0, panels={{c={157.277,238.284,500.606},n={-0,-0,-1},r={-1,0,-0},w=19.135,h=9.568,u0=0,u1=1}}},
+		["SCR_A_S_12_Zakkyo_01"] = {ad="AD_DataStream", kind="storefront", layer=0, panels={{c={111.047,12.3,458.8},n={-0,-0,-1},r={-1,0,-0},w=7.998,h=2,u0=0,u1=1}}},
+		["SCR_A_S_12_Zakkyo_02"] = {ad="AD_VoltRunner", kind="stack", layer=0, panels={{c={122.205,34.5,455.7},n={-0,-0,-1},r={-1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_S_12_Zakkyo_03"] = {ad="AD_SynthFM", kind="stack", layer=0, panels={{c={122.205,43,455.7},n={-0,-0,-1},r={-1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_S_12_Zakkyo_04"] = {ad="AD_KirinDeck", kind="stack", layer=0, panels={{c={122.205,51.5,455.7},n={-0,-0,-1},r={-1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_S_13_Modern_01"] = {ad="AD_NanoMed", kind="storefront", layer=0, panels={{c={100.535,12.066,459.5},n={-0,-0,-1},r={-1,0,-0},w=6.126,h=1.531,u0=0,u1=1}}},
+		["SCR_A_S_13_Modern_02"] = {ad="AD_MegaSale", kind="rooftop", layer=0, panels={{c={78.594,183.88,477.703},n={-0,-0,-1},r={-1,0,-0},w=31.519,h=15.76,u0=0,u1=1}}},
+		["SCR_A_S_14_Zakkyo_01"] = {ad="AD_DataStream", kind="storefront", layer=0, panels={{c={40.423,12.018,458.8},n={-0,-0,-1},r={-1,0,-0},w=5.743,h=1.436,u0=0,u1=1}}},
+		["SCR_A_S_14_Zakkyo_02"] = {ad="AD_PlayHex", kind="stack", layer=0, panels={{c={43.14,22.5,458.2},n={-0,-0,-1},r={-1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_S_14_Zakkyo_03"] = {ad="AD_SakuraLink", kind="stack", layer=0, panels={{c={43.14,31,458.2},n={-0,-0,-1},r={-1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_S_14_Zakkyo_04"] = {ad="AD_KirinDeck", kind="stack", layer=0, panels={{c={43.14,39.5,458.2},n={-0,-0,-1},r={-1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_S_14_Zakkyo_05"] = {ad="AD_SushiSpeed", kind="rooftop", layer=0, panels={{c={46.974,127.131,462.2},n={-0,-0,-1},r={-1,0,-0},w=29.845,h=14.922,u0=0,u1=1}}},
+		["SCR_A_S_15_Modern_01"] = {ad="AD_NewsTicker", kind="storefront", layer=0, panels={{c={-1.958,12.261,459.8},n={-0,-0,-1},r={-1,0,-0},w=7.684,h=1.921,u0=0,u1=1}}},
+		["SCR_A_S_16_Modern_01"] = {ad="AD_TipOff", kind="storefront", layer=0, panels={{c={-16.268,12.352,459.5},n={-0,-0,-1},r={-1,0,-0},w=8.416,h=2.104,u0=0,u1=1}}},
+		["SCR_A_S_17_Low_01"] = {ad="AD_MindUpload", kind="rooftop", layer=0, panels={{c={-65.302,62.929,463.2},n={-0,-0,-1},r={-1,0,-0},w=20.303,h=10.152,u0=0,u1=1}}},
+		["SCR_A_S_18_Modern_01"] = {ad="AD_YumeOptics", kind="stack", layer=0, panels={{c={-89.65,34.5,458.9},n={-0,-0,-1},r={-1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_S_18_Modern_02"] = {ad="AD_AkaiMotors", kind="stack", layer=0, panels={{c={-89.65,43,458.9},n={-0,-0,-1},r={-1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_S_18_Modern_03"] = {ad="AD_KirinDeck", kind="stack", layer=0, panels={{c={-89.65,51.5,458.9},n={-0,-0,-1},r={-1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_S_19_Arcade_01"] = {ad="AD_Karaoke24", kind="arcade", layer=0, panels={{c={-123.828,23.3,462.9},n={-0,-0,-1},r={-1,0,-0},w=9,h=9,u0=0,u1=1}}},
+		["SCR_A_S_19_Arcade_02"] = {ad="AD_RyuGames", kind="arcade", layer=0, panels={{c={-123.828,46.1,462.9},n={-0,-0,-1},r={-1,0,-0},w=9,h=9,u0=0,u1=1}}},
+		["SCR_A_S_19_Arcade_03"] = {ad="AD_NexusAndroids", kind="arcade", layer=0, panels={{c={-124.578,56.5,462.9},n={-0,-0,-1},r={-1,0,-0},w=4.5,h=9,u0=0,u1=1}}},
+		["SCR_A_S_19_Arcade_04"] = {ad="AD_MindUpload", kind="arcade", layer=0, panels={{c={-137.228,56.5,462.9},n={-0,-0,-1},r={-1,0,-0},w=18,h=9,u0=0,u1=1}}},
+		["SCR_A_S_19_Arcade_05"] = {ad="AD_DenkiCola", kind="arcade", layer=0, panels={{c={-149.878,56.5,462.9},n={-0,-0,-1},r={-1,0,-0},w=4.5,h=9,u0=0,u1=1}}},
+		["SCR_A_S_19_Arcade_06"] = {ad="AD_RyuGames", kind="arcade", layer=0, panels={{c={-158.028,56.5,462.9},n={-0,-0,-1},r={-1,0,-0},w=9,h=9,u0=0,u1=1}}},
+		["SCR_A_S_19_Arcade_07"] = {ad="AD_Onigiri24", kind="arcade", layer=0, panels={{c={-124.828,67.9,462.9},n={-0,-0,-1},r={-1,0,-0},w=11,h=11,u0=0,u1=1}}},
+		["SCR_A_S_19_Arcade_08"] = {ad="AD_SynthFM", kind="arcade", layer=0, panels={{c={-142.728,67.9,462.9},n={-0,-0,-1},r={-1,0,-0},w=22,h=11,u0=0,u1=1}}},
+		["SCR_A_S_19_Arcade_09"] = {ad="AD_CourtKings", kind="arcade", layer=0, panels={{c={-127.828,80.3,462.9},n={-0,-0,-1},r={-1,0,-0},w=11,h=11,u0=0,u1=1}}},
+		["SCR_A_S_19_Arcade_10"] = {ad="AD_HexLeague", kind="arcade", layer=0, panels={{c={-145.728,80.3,462.9},n={-0,-0,-1},r={-1,0,-0},w=22,h=11,u0=0,u1=1}}},
+		["SCR_A_S_19_Arcade_11"] = {ad="AD_OkamiArms", kind="arcade", layer=0, panels={{c={-121.078,90.7,462.9},n={-0,-0,-1},r={-1,0,-0},w=3.5,h=7,u0=0,u1=1}}},
+		["SCR_A_S_19_Arcade_12"] = {ad="AD_CourtKings", kind="arcade", layer=0, panels={{c={-127.728,90.7,462.9},n={-0,-0,-1},r={-1,0,-0},w=7,h=7,u0=0,u1=1}}},
+		["SCR_A_S_19_Arcade_13"] = {ad="AD_MegaSale", kind="arcade", layer=0, panels={{c={-139.628,90.7,462.9},n={-0,-0,-1},r={-1,0,-0},w=14,h=7,u0=0,u1=1}}},
+		["SCR_A_S_19_Arcade_14"] = {ad="AD_Hanabi", kind="arcade", layer=0, panels={{c={-151.528,90.7,462.9},n={-0,-0,-1},r={-1,0,-0},w=7,h=7,u0=0,u1=1}}},
+		["SCR_A_S_20_Mansion_01"] = {ad="AD_RamenIchiban", kind="storefront", layer=0, panels={{c={-184.134,12.324,457.95},n={-0,-0,-1},r={-1,0,-0},w=8.193,h=2.048,u0=0,u1=1}}},
+		["SCR_A_S_20_Mansion_02"] = {ad="AD_DataStream", kind="storefront", layer=0, panels={{c={-194.351,12.305,457.95},n={-0,-0,-1},r={-1,0,-0},w=8.04,h=2.01,u0=0,u1=1}}},
+		["SCR_A_S_20_Mansion_03"] = {ad="AD_SakuraLink", kind="cantilever", layer=0, panels={{c={-184.699,76.209,453.85},n={-0,-0,-1},r={-1,0,-0},w=24.837,h=12.419,u0=0,u1=1}}},
+		["SCR_A_S_21_Zakkyo_01"] = {ad="AD_NewsTicker", kind="storefront", layer=0, panels={{c={-206.935,12.979,458.8},n={-0,-0,-1},r={-1,0,-0},w=13.428,h=3.357,u0=0,u1=1}}},
+		["SCR_A_S_21_Zakkyo_02"] = {ad="AD_MatchaPlus", kind="giant", layer=0, panels={{c={-206.935,58.759,460.2},n={-0,-0,-1},r={-1,0,-0},w=7.514,h=30.056,u0=0,u1=1}}},
+		["SCR_A_S_22_Zakkyo_01"] = {ad="AD_BladeEdge", kind="giant", layer=0, panels={{c={-222.486,90.615,461.5},n={-0,-0,-1},r={-1,0,-0},w=6.81,h=27.24,u0=0,u1=1}}},
+		["SCR_A_S_23_Zakkyo_01"] = {ad="AD_KoiAir", kind="storefront", layer=0, panels={{c={-309.546,12.474,458.8},n={-0,-0,-1},r={-1,0,-0},w=9.391,h=2.348,u0=0,u1=1}}},
+		["SCR_A_S_23_Zakkyo_02"] = {ad="AD_RamenIchiban", kind="storefront", layer=0, panels={{c={-320.747,12.402,458.8},n={-0,-0,-1},r={-1,0,-0},w=8.812,h=2.203,u0=0,u1=1}}},
+		["SCR_A_S_23_Zakkyo_03"] = {ad="AD_HexLeagueTall", kind="giant", layer=0, panels={{c={-319.525,46.35,458.3},n={-0,-0,-1},r={-1,0,-0},w=24.35,h=48.7,u0=0,u1=1}}},
+		["SCR_A_S_24_Mansion_01"] = {ad="AD_HexLeague", kind="stack", layer=0, panels={{c={-356.14,22.5,457.35},n={-0,-0,-1},r={-1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_S_24_Mansion_02"] = {ad="AD_YumeOptics", kind="stack", layer=0, panels={{c={-356.14,31,457.35},n={-0,-0,-1},r={-1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_S_24_Mansion_03"] = {ad="AD_AkaiMotors", kind="stack", layer=0, panels={{c={-356.14,39.5,457.35},n={-0,-0,-1},r={-1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_S_24_Mansion_04"] = {ad="AD_HexLeague", kind="stack", layer=0, panels={{c={-356.14,48,457.35},n={-0,-0,-1},r={-1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_S_25_Zakkyo_01"] = {ad="AD_MiraiBank", kind="storefront", layer=0, panels={{c={-378.148,12.482,460},n={-0,-0,-1},r={-1,0,-0},w=9.457,h=2.364,u0=0,u1=1}}},
+		["SCR_A_S_25_Zakkyo_02"] = {ad="AD_SynthFM", kind="rooftop", layer=0, panels={{c={-373.803,173.806,463.4},n={-0,-0,-1},r={-1,0,-0},w=29.147,h=14.573,u0=0,u1=1}}},
+		["SCR_A_S_25_Zakkyo_03"] = {ad="AD_MegaSale", kind="crown", layer=0, panels={{c={-372.754,187.739,499.732},n={-0,-0,-1},r={-1,0,-0},w=8.958,h=4.479,u0=0,u1=1}}},
+		["SCR_A_S_26_Louver_01"] = {ad="AD_AkaiMotors", kind="stack", layer=0, panels={{c={-405.725,22.5,458.2},n={-0,-0,-1},r={-1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_S_26_Louver_02"] = {ad="AD_KirinDeck", kind="stack", layer=0, panels={{c={-405.725,31,458.2},n={-0,-0,-1},r={-1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_S_27_Zakkyo_01"] = {ad="AD_SushiSpeed", kind="stack", layer=0, panels={{c={-427.144,22.5,458.2},n={-0,-0,-1},r={-1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_S_27_Zakkyo_02"] = {ad="AD_VoltRunner", kind="stack", layer=0, panels={{c={-427.144,31,458.2},n={-0,-0,-1},r={-1,0,-0},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_S_28_Low_01"] = {ad="AD_KoiAir", kind="storefront", layer=0, panels={{c={-460.135,12.416,458.8},n={-0,-0,-1},r={-1,0,-0},w=8.926,h=2.231,u0=0,u1=1}}},
+		["SCR_A_S_28_Low_02"] = {ad="AD_VoltRunner", kind="rooftop", layer=0, panels={{c={-448.872,67.102,463.2},n={-0,-0,-1},r={-1,0,-0},w=32.452,h=16.226,u0=0,u1=1}}},
+		["SCR_A_W_01_Pencil_01"] = {ad="AD_NewsTicker", kind="storefront", layer=0, panels={{c={-545,12.97,375.12},n={1,-0,0},r={0,0,-1},w=13.36,h=3.34,u0=0,u1=1}}},
+		["SCR_A_W_01_Pencil_02H"] = {ad="AD_Tokyo2099", kind="holo", layer=0, panels={{c={-542.3,46,370.885},n={-0,-0,1},r={1,-0,0},w=5,h=40,u0=0,u1=1}}},
+		["SCR_A_W_01_Pencil_03H"] = {ad="AD_Cyber", kind="holo", layer=0, panels={{c={-542.3,46,370.085},n={0,0,-1},r={-1,0,-0},w=5,h=40,u0=0,u1=1}}},
+		["SCR_A_W_02_Louver_01"] = {ad="AD_YumeOptics", kind="stack", layer=0, panels={{c={-544,34.5,355.86},n={1,-0,0},r={0,0,-1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_W_02_Louver_02"] = {ad="AD_SakuraLink", kind="stack", layer=0, panels={{c={-544,43,355.86},n={1,-0,0},r={0,0,-1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_W_02_Louver_03"] = {ad="AD_PlayHex", kind="stack", layer=0, panels={{c={-544,51.5,355.86},n={1,-0,0},r={0,0,-1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_W_02_Louver_04"] = {ad="AD_YumeOptics", kind="crown", layer=0, panels={{c={-546.5,155.141,354.808},n={1,-0,0},r={0,0,-1},w=22.564,h=11.282,u0=0,u1=1}}},
+		["SCR_A_W_03_Low_01"] = {ad="AD_VoltRunner", kind="rooftop", layer=0, panels={{c={-548.2,44.561,326.368},n={1,-0,0},r={0,0,-1},w=28.971,h=14.486,u0=0,u1=1}}},
+		["SCR_A_W_04_Zakkyo_01"] = {ad="AD_NanoMed", kind="storefront", layer=0, panels={{c={-545,12.643,305.159},n={1,-0,0},r={0,0,-1},w=10.746,h=2.686,u0=0,u1=1}}},
+		["SCR_A_W_04_Zakkyo_02"] = {ad="AD_SakuraLink", kind="stack", layer=0, panels={{c={-544.4,22.5,301.699},n={1,-0,0},r={0,0,-1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_W_04_Zakkyo_03"] = {ad="AD_SushiSpeed", kind="stack", layer=0, panels={{c={-544.4,31,301.699},n={1,-0,0},r={0,0,-1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_W_04_Zakkyo_04"] = {ad="AD_MegaSale", kind="stack", layer=0, panels={{c={-544.4,39.5,301.699},n={1,-0,0},r={0,0,-1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_W_06_Zakkyo_01"] = {ad="AD_RamenIchiban", kind="storefront", layer=0, panels={{c={-543.8,12.726,240.644},n={1,-0,0},r={0,0,-1},w=11.412,h=2.853,u0=0,u1=1}}},
+		["SCR_A_W_07_Zakkyo_01"] = {ad="AD_DataStream", kind="storefront", layer=0, panels={{c={-543.8,12.722,191.79},n={1,-0,0},r={0,0,-1},w=11.379,h=2.845,u0=0,u1=1}}},
+		["SCR_A_W_07_Zakkyo_02"] = {ad="AD_AkaiMotors", kind="stack", layer=0, panels={{c={-540.7,22.5,208.317},n={1,-0,0},r={0,0,-1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_W_07_Zakkyo_03"] = {ad="AD_SynthFM", kind="stack", layer=0, panels={{c={-540.7,31,208.317},n={1,-0,0},r={0,0,-1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_W_07_Zakkyo_04"] = {ad="AD_MindUpload", kind="stack", layer=0, panels={{c={-540.7,39.5,208.317},n={1,-0,0},r={0,0,-1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_W_07_Zakkyo_05"] = {ad="AD_HexLeague", kind="rooftop", layer=0, panels={{c={-547.2,132.005,203.367},n={1,-0,0},r={0,0,-1},w=45.534,h=22.767,u0=0,u1=1}}},
+		["SCR_A_W_08_Zakkyo_01"] = {ad="AD_TipOff", kind="storefront", layer=0, panels={{c={-543.688,12.151,106.495},n={1,-0,0},r={0,0,-1},w=6.81,h=1.703,u0=0,u1=1}}},
+		["SCR_A_W_09_Arcade_01"] = {ad="AD_MiraiBank", kind="storefront", layer=0, panels={{c={-545.5,12.352,62.408},n={1,-0,0},r={0,0,-1},w=8.416,h=2.104,u0=0,u1=1}}},
+		["SCR_A_W_09_Arcade_02"] = {ad="AD_SushiSpeed", kind="arcade", layer=0, panels={{c={-548.1,33.7,53.816},n={1,-0,0},r={0,0,-1},w=18,h=9,u0=0,u1=1}}},
+		["SCR_A_W_09_Arcade_03"] = {ad="AD_NekoNet", kind="arcade", layer=0, panels={{c={-548.1,33.7,41.166},n={1,-0,0},r={0,0,-1},w=4.5,h=9,u0=0,u1=1}}},
+		["SCR_A_W_09_Arcade_04"] = {ad="AD_ScanMe", kind="arcade", layer=0, panels={{c={-548.1,43.1,62.316},n={1,-0,0},r={0,0,-1},w=7,h=7,u0=0,u1=1}}},
+		["SCR_A_W_09_Arcade_05"] = {ad="AD_KirinDeck", kind="arcade", layer=0, panels={{c={-548.1,43.1,50.416},n={1,-0,0},r={0,0,-1},w=14,h=7,u0=0,u1=1}}},
+		["SCR_A_W_09_Arcade_06"] = {ad="AD_ScanMe", kind="arcade", layer=0, panels={{c={-548.1,43.1,38.516},n={1,-0,0},r={0,0,-1},w=7,h=7,u0=0,u1=1}}},
+		["SCR_A_W_09_Arcade_07"] = {ad="AD_MindUpload", kind="arcade", layer=0, panels={{c={-548.1,51.5,55.816},n={1,-0,0},r={0,0,-1},w=14,h=7,u0=0,u1=1}}},
+		["SCR_A_W_09_Arcade_08"] = {ad="AD_NekoNet", kind="arcade", layer=0, panels={{c={-548.1,51.5,45.666},n={1,-0,0},r={0,0,-1},w=3.5,h=7,u0=0,u1=1}}},
+		["SCR_A_W_09_Arcade_09"] = {ad="AD_Pachinko", kind="arcade", layer=0, panels={{c={-548.1,51.5,40.766},n={1,-0,0},r={0,0,-1},w=3.5,h=7,u0=0,u1=1}}},
+		["SCR_A_W_09_Arcade_10"] = {ad="AD_Hanabi", kind="arcade", layer=0, panels={{c={-548.1,60.9,61.316},n={1,-0,0},r={0,0,-1},w=9,h=9,u0=0,u1=1}}},
+		["SCR_A_W_09_Arcade_11"] = {ad="AD_OkamiArms", kind="arcade", layer=0, panels={{c={-548.1,60.9,53.166},n={1,-0,0},r={0,0,-1},w=4.5,h=9,u0=0,u1=1}}},
+		["SCR_A_W_09_Arcade_12"] = {ad="AD_Onigiri24", kind="arcade", layer=0, panels={{c={-548.1,60.9,45.016},n={1,-0,0},r={0,0,-1},w=9,h=9,u0=0,u1=1}}},
+		["SCR_A_W_09_Arcade_13"] = {ad="AD_AkaiMotors", kind="arcade", layer=0, panels={{c={-548.1,72.3,51.816},n={1,-0,0},r={0,0,-1},w=22,h=11,u0=0,u1=1}}},
+		["SCR_A_W_09_Arcade_14"] = {ad="AD_Karaoke24", kind="arcade", layer=0, panels={{c={-548.1,83.7,61.316},n={1,-0,0},r={0,0,-1},w=9,h=9,u0=0,u1=1}}},
+		["SCR_A_W_09_Arcade_15"] = {ad="AD_PlayHex", kind="arcade", layer=0, panels={{c={-548.1,83.7,46.416},n={1,-0,0},r={0,0,-1},w=18,h=9,u0=0,u1=1}}},
+		["SCR_A_W_09_Arcade_16"] = {ad="AD_TipOff", kind="arcade", layer=0, panels={{c={-548.1,92.9,49.616},n={1,-0,0},r={0,0,-1},w=26.4,h=6.6,u0=0,u1=1}}},
+		["SCR_A_W_10_Louver_01"] = {ad="AD_KoiAir", kind="storefront", layer=0, panels={{c={-543.391,12.63,17.729},n={1,-0,0},r={0,0,-1},w=10.643,h=2.661,u0=0,u1=1}}},
+		["SCR_A_W_12_Mansion_01"] = {ad="AD_RamenIchiban", kind="storefront", layer=0, panels={{c={-542.95,12.215,-42.11},n={1,-0,0},r={0,0,-1},w=7.318,h=1.83,u0=0,u1=1}}},
+		["SCR_A_W_12_Mansion_02"] = {ad="AD_KirinDeck", kind="stack", layer=0, panels={{c={-542.35,34.5,-40.382},n={1,-0,0},r={0,0,-1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_W_12_Mansion_03"] = {ad="AD_SushiSpeed", kind="stack", layer=0, panels={{c={-542.35,43,-40.382},n={1,-0,0},r={0,0,-1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_W_13_Pencil_01"] = {ad="AD_MatchaPlus", kind="giant", layer=0, panels={{c={-546.4,101.143,-65.894},n={1,-0,0},r={0,0,-1},w=4.516,h=18.063,u0=0,u1=1}}},
+		["SCR_A_W_14_Zakkyo_01"] = {ad="AD_PlayHex", kind="cantilever", layer=0, panels={{c={-540.9,98.801,-83.668},n={1,-0,0},r={0,0,-1},w=19.205,h=9.603,u0=0,u1=1}}},
+		["SCR_A_W_15_Low_01"] = {ad="AD_AkaiMotors", kind="rooftop", layer=0, panels={{c={-549.4,52.064,-106.342},n={1,-0,0},r={0,0,-1},w=22.443,h=11.222,u0=0,u1=1}}},
+		["SCR_A_W_16_LMBlock_01"] = {ad="AD_NewsTicker", kind="storefront", layer=0, panels={{c={-543.518,11.994,-148.036},n={1,-0,0},r={0,0,-1},w=5.554,h=1.389,u0=0,u1=1}}},
+		["SCR_A_W_16_LMBlock_02"] = {ad="AD_DataStream", kind="storefront", layer=0, panels={{c={-543.518,12.301,-156.918},n={1,-0,0},r={0,0,-1},w=8.008,h=2.002,u0=0,u1=1}}},
+		["SCR_A_W_16_LMBlock_03"] = {ad="AD_NanoMed", kind="storefront", layer=0, panels={{c={-543.518,12.799,-169.017},n={1,-0,0},r={0,0,-1},w=11.99,h=2.998,u0=0,u1=1}}},
+		["SCR_A_W_16_LMBlock_04"] = {ad="AD_MiraiBank", kind="storefront", layer=0, panels={{c={-543.518,12.411,-190.905},n={1,-0,0},r={0,0,-1},w=8.89,h=2.223,u0=0,u1=1}}},
+		["SCR_A_W_16_LMBlock_05"] = {ad="AD_DenkiCola", kind="giant", layer=0, panels={{c={-545.918,92,-159.275},n={1,-0,0},r={0,0,-1},w=55.15,h=100,u0=0,u1=1}}},
+		["SCR_A_W_16_LMBlock_06"] = {ad="AD_MegaSale", kind="layered", layer=1, panels={{c={-539.418,41.5,-136.7},n={1,-0,0},r={0,0,-1},w=22,h=11,u0=0,u1=1}}},
+		["SCR_A_W_16_LMBlock_07"] = {ad="AD_NexusAndroids", kind="sky", layer=0, panels={{c={-536.918,302.15,-159.275},n={1,-0,0},r={0,0,-1},w=97.15,h=194.3,u0=0,u1=1}}},
+		["SCR_A_W_17_Modern_01"] = {ad="AD_YumeOptics", kind="cantilever", layer=0, panels={{c={-541.3,79.802,-220.539},n={1,-0,0},r={0,0,-1},w=39.209,h=19.604,u0=0,u1=1}}},
+		["SCR_A_W_18_Mansion_01"] = {ad="AD_TipOff", kind="storefront", layer=0, panels={{c={-542.95,11.842,-289.167},n={1,-0,0},r={0,0,-1},w=4.333,h=1.083,u0=0,u1=1}}},
+		["SCR_A_W_18_Mansion_02"] = {ad="AD_MindUpload", kind="stack", layer=0, panels={{c={-542.35,34.5,-266.44},n={1,-0,0},r={0,0,-1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_W_18_Mansion_03"] = {ad="AD_SynthFM", kind="stack", layer=0, panels={{c={-542.35,43,-266.44},n={1,-0,0},r={0,0,-1},w=10,h=5,u0=0,u1=1}}},
+		["SCR_A_W_19_Zakkyo_01"] = {ad="AD_NekoNet", kind="giant", layer=0, panels={{c={-541.8,49.283,-303.325},n={1,-0,0},r={0,0,-1},w=15.283,h=30.567,u0=0,u1=1}}},
+		["SCR_A_W_20_Pencil_01"] = {ad="AD_HoloKoi", kind="giant", layer=0, panels={{c={-546.9,129.452,-319.929},n={1,-0,0},r={0,0,-1},w=4.824,h=19.294,u0=0,u1=1}}},
+		["SCR_A_W_22_Zakkyo_01"] = {ad="AD_KirinDeck", kind="cantilever", layer=0, panels={{c={-539.7,85.906,-375.589},n={1,-0,0},r={0,0,-1},w=15.623,h=7.811,u0=0,u1=1}}},
+		["SCR_A_W_22_Zakkyo_02"] = {ad="AD_VoltRunner", kind="crown", layer=0, panels={{c={-545.7,117.406,-375.589},n={1,-0,0},r={0,0,-1},w=15.623,h=7.811,u0=0,u1=1}}},
+		["SCR_A_Corner_NE_01"] = {ad="AD_RamenIchiban", kind="storefront", layer=0, panels={{c={545.478,12.56,-515.037},n={-1,-0,0},r={0,0,1},w=10.076,h=2.519,u0=0,u1=1}}},
+		["SCR_A_Corner_NE_02C"] = {ad="AD_ShibuyaKanji", kind="curved", layer=0, panels={{c={558.394,89.156,-533.33},n={-0.766,0,-0.643},r={-0.643,0,0.766},w=7.444,h=50.311,u0=0,u1=0.0556},{c={554.14,89.156,-527.255},n={-0.866,0,-0.5},r={-0.5,0,0.866},w=7.444,h=50.311,u0=0.0556,u1=0.1111},{c={551.006,89.156,-520.534},n={-0.94,0,-0.342},r={-0.342,0,0.94},w=7.444,h=50.311,u0=0.1111,u1=0.1667},{c={549.087,89.156,-513.371},n={-0.985,0,-0.174},r={-0.174,0,0.985},w=7.444,h=50.311,u0=0.1667,u1=0.2222},{c={548.441,89.156,-505.984},n={-1,0,-0},r={0,0,1},w=7.444,h=50.311,u0=0.2222,u1=0.2778},{c={549.087,89.156,-498.596},n={-0.985,0,0.174},r={0.174,0,0.985},w=7.444,h=50.311,u0=0.2778,u1=0.3333},{c={551.006,89.156,-491.433},n={-0.94,0,0.342},r={0.342,0,0.94},w=7.444,h=50.311,u0=0.3333,u1=0.3889},{c={554.14,89.156,-484.712},n={-0.866,0,0.5},r={0.5,0,0.866},w=7.444,h=50.311,u0=0.3889,u1=0.4444},{c={558.394,89.156,-478.638},n={-0.766,0,0.643},r={0.643,0,0.766},w=7.444,h=50.311,u0=0.4444,u1=0.5},{c={563.638,89.156,-473.394},n={-0.643,0,0.766},r={0.766,0,0.643},w=7.444,h=50.311,u0=0.5,u1=0.5556},{c={569.712,89.156,-469.14},n={-0.5,0,0.866},r={0.866,0,0.5},w=7.444,h=50.311,u0=0.5556,u1=0.6111},{c={576.433,89.156,-466.006},n={-0.342,0,0.94},r={0.94,0,0.342},w=7.444,h=50.311,u0=0.6111,u1=0.6667},{c={583.596,89.156,-464.087},n={-0.174,0,0.985},r={0.985,0,0.174},w=7.444,h=50.311,u0=0.6667,u1=0.7222},{c={590.984,89.156,-463.441},n={0,0,1},r={1,0,-0},w=7.444,h=50.311,u0=0.7222,u1=0.7778},{c={598.371,89.156,-464.087},n={0.174,0,0.985},r={0.985,0,-0.174},w=7.444,h=50.311,u0=0.7778,u1=0.8333},{c={605.534,89.156,-466.006},n={0.342,0,0.94},r={0.94,0,-0.342},w=7.444,h=50.311,u0=0.8333,u1=0.8889},{c={612.255,89.156,-469.14},n={0.5,0,0.866},r={0.866,0,-0.5},w=7.444,h=50.311,u0=0.8889,u1=0.9444},{c={618.33,89.156,-473.394},n={0.643,0,0.766},r={0.766,0,-0.643},w=7.444,h=50.311,u0=0.9444,u1=1}}},
+		["SCR_A_Corner_NE_03C"] = {ad="AD_DataStream", kind="curved", layer=0, panels={{c={552.869,250.021,-524.471},n={-0.9,0,-0.436},r={-0.436,0,0.9},w=7.003,h=28.042,u0=0,u1=0.0625},{c={550.351,250.021,-517.962},n={-0.959,0,-0.283},r={-0.283,0,0.959},w=7.003,h=28.042,u0=0.0625,u1=0.125},{c={548.936,250.021,-511.128},n={-0.993,0,-0.121},r={-0.121,0,0.993},w=7.003,h=28.042,u0=0.125,u1=0.1875},{c={548.662,250.021,-504.154},n={-0.999,0,0.043},r={0.043,0,0.999},w=7.003,h=28.042,u0=0.1875,u1=0.25},{c={549.537,250.021,-497.231},n={-0.978,0,0.207},r={0.207,0,0.978},w=7.003,h=28.042,u0=0.25,u1=0.3125},{c={551.536,250.021,-490.544},n={-0.931,0,0.364},r={0.364,0,0.931},w=7.003,h=28.042,u0=0.3125,u1=0.375},{c={554.607,250.021,-484.277},n={-0.859,0,0.512},r={0.512,0,0.859},w=7.003,h=28.042,u0=0.375,u1=0.4375},{c={558.664,250.021,-478.599},n={-0.763,0,0.646},r={0.646,0,0.763},w=7.003,h=28.042,u0=0.4375,u1=0.5},{c={563.599,250.021,-473.664},n={-0.646,0,0.763},r={0.763,0,0.646},w=7.003,h=28.042,u0=0.5,u1=0.5625},{c={569.277,250.021,-469.607},n={-0.512,0,0.859},r={0.859,0,0.512},w=7.003,h=28.042,u0=0.5625,u1=0.625},{c={575.544,250.021,-466.536},n={-0.364,0,0.931},r={0.931,0,0.364},w=7.003,h=28.042,u0=0.625,u1=0.6875},{c={582.231,250.021,-464.537},n={-0.207,0,0.978},r={0.978,0,0.207},w=7.003,h=28.042,u0=0.6875,u1=0.75},{c={589.154,250.021,-463.662},n={-0.043,0,0.999},r={0.999,0,0.043},w=7.003,h=28.042,u0=0.75,u1=0.8125},{c={596.128,250.021,-463.936},n={0.121,0,0.993},r={0.993,0,-0.121},w=7.003,h=28.042,u0=0.8125,u1=0.875},{c={602.962,250.021,-465.351},n={0.283,0,0.959},r={0.959,0,-0.283},w=7.003,h=28.042,u0=0.875,u1=0.9375},{c={609.471,250.021,-467.869},n={0.436,0,0.9},r={0.9,0,-0.436},w=7.003,h=28.042,u0=0.9375,u1=1}}},
+		["SCR_A_Corner_NW_01"] = {ad="AD_NewsTicker", kind="storefront", layer=0, panels={{c={-632.728,12.493,-459.3},n={-0,-0,1},r={1,0,-0},w=9.545,h=2.386,u0=0,u1=1}}},
+		["SCR_A_Corner_NW_02"] = {ad="AD_NanoMed", kind="storefront", layer=0, panels={{c={-583.949,12.719,-459.3},n={-0,-0,1},r={1,0,-0},w=11.355,h=2.839,u0=0,u1=1}}},
+		["SCR_A_Corner_NW_03"] = {ad="AD_MiraiBank", kind="storefront", layer=0, panels={{c={-570.585,12.696,-459.3},n={-0,-0,1},r={1,0,-0},w=11.171,h=2.793,u0=0,u1=1}}},
+		["SCR_A_Corner_NW_04"] = {ad="AD_MegaSale", kind="giant", layer=0, panels={{c={-547.1,55.075,-515.85},n={1,-0,0},r={0,0,-1},w=60.3,h=30.15,u0=0,u1=1}}},
+		["SCR_A_Corner_NW_05"] = {ad="AD_SakuraLink", kind="giant", layer=0, panels={{c={-601.25,54.875,-461.3},n={-0,-0,1},r={1,0,-0},w=59.5,h=29.75,u0=0,u1=1}}},
+		["SCR_A_Corner_NW_06"] = {ad="AD_AkaiMotors", kind="rooftop", layer=0, panels={{c={-572.089,218,-486.577},n={0.707,-0,0.707},r={0.707,0,-0.707},w=64,h=32,u0=0,u1=1}}},
+		["SCR_A_Corner_SE_01"] = {ad="AD_TipOff", kind="storefront", layer=0, panels={{c={575.019,12.021,462.216},n={-0.707,-0,-0.707},r={-0.707,0,0.707},w=5.764,h=1.441,u0=0,u1=1}}},
+		["SCR_A_Corner_SE_02"] = {ad="AD_DataStream", kind="storefront", layer=0, panels={{c={569.014,12.177,468.22},n={-0.707,-0,-0.707},r={-0.707,0,0.707},w=7.019,h=1.755,u0=0,u1=1}}},
+		["SCR_A_Corner_SE_03"] = {ad="AD_NanoMed", kind="storefront", layer=0, panels={{c={544,12.728,500.614},n={-1,-0,0},r={0,0,1},w=11.428,h=2.857,u0=0,u1=1}}},
+		["SCR_A_Corner_SE_04"] = {ad="AD_MiraiBank", kind="storefront", layer=0, panels={{c={544,12.874,524.906},n={-1,-0,0},r={0,0,1},w=12.592,h=3.148,u0=0,u1=1}}},
+		["SCR_A_Corner_SE_05"] = {ad="AD_AikoLive", kind="giant", layer=0, panels={{c={563.097,86.083,478.097},n={-0.707,-0,-0.707},r={-0.707,0,0.707},w=42.083,h=84.167,u0=0,u1=1}}},
+		["SCR_A_Corner_SE_06"] = {ad="AD_RamenIchiban", kind="ticker", layer=0, panels={{c={554.834,279.01,469.834},n={-0.707,-0,-0.707},r={-0.707,0,0.707},w=40.083,h=10.021,u0=0,u1=1}}},
+		["SCR_A_Corner_SW_01"] = {ad="AD_KoiAir", kind="storefront", layer=0, panels={{c={-566.891,12.076,465.768},n={0.465,-0,-0.885},r={-0.885,0,-0.465},w=6.209,h=1.552,u0=0,u1=1}}},
+		["SCR_A_Corner_SW_02"] = {ad="AD_DataStream", kind="storefront", layer=0, panels={{c={-575.529,12.076,462.492},n={0.239,-0,-0.971},r={-0.971,0,-0.239},w=6.209,h=1.552,u0=0,u1=1}}},
+		["SCR_A_Corner_SW_03"] = {ad="AD_TipOff", kind="storefront", layer=0, panels={{c={-610.112,12.076,471.016},n={-0.663,-0,-0.749},r={-0.749,0,0.663},w=6.209,h=1.552,u0=0,u1=1}}},
+		["SCR_A_Corner_SW_04C"] = {ad="AD_Titan3", kind="curved", layer=0, panels={{c={-558.778,59,529.573},n={0.655,0,0.755},r={0.755,0,-0.655},w=6.851,h=50,u0=0,u1=0.05},{c={-554.028,59,524.671},n={0.776,0,0.631},r={0.631,0,-0.776},w=6.851,h=50,u0=0.05,u1=0.1},{c={-550.191,59,519.026},n={0.872,0,0.489},r={0.489,0,-0.872},w=6.851,h=50,u0=0.1,u1=0.15},{c={-547.382,59,512.805},n={0.944,0,0.331},r={0.331,0,-0.944},w=6.851,h=50,u0=0.15,u1=0.2},{c={-545.685,59,506.194},n={0.986,0,0.164},r={0.164,0,-0.986},w=6.851,h=50,u0=0.2,u1=0.25},{c={-545.149,59,499.389},n={1,-0,-0.008},r={-0.008,0,-1},w=6.851,h=50,u0=0.25,u1=0.3},{c={-545.792,59,492.594},n={0.984,-0,-0.18},r={-0.18,0,-0.984},w=6.851,h=50,u0=0.3,u1=0.35},{c={-547.593,59,486.01},n={0.938,-0,-0.346},r={-0.346,0,-0.938},w=6.851,h=50,u0=0.35,u1=0.4},{c={-550.499,59,479.834},n={0.865,-0,-0.502},r={-0.502,0,-0.865},w=6.851,h=50,u0=0.4,u1=0.45},{c={-554.424,59,474.25},n={0.765,-0,-0.643},r={-0.643,0,-0.765},w=6.851,h=50,u0=0.45,u1=0.5},{c={-559.25,59,469.424},n={0.643,-0,-0.765},r={-0.765,0,-0.643},w=6.851,h=50,u0=0.5,u1=0.55},{c={-564.834,59,465.499},n={0.502,-0,-0.865},r={-0.865,0,-0.502},w=6.851,h=50,u0=0.55,u1=0.6},{c={-571.01,59,462.593},n={0.346,-0,-0.938},r={-0.938,0,-0.346},w=6.851,h=50,u0=0.6,u1=0.65},{c={-577.594,59,460.792},n={0.18,-0,-0.984},r={-0.984,0,-0.18},w=6.851,h=50,u0=0.65,u1=0.7},{c={-584.389,59,460.149},n={0.008,-0,-1},r={-1,0,-0.008},w=6.851,h=50,u0=0.7,u1=0.75},{c={-591.194,59,460.685},n={-0.164,0,-0.986},r={-0.986,0,0.164},w=6.851,h=50,u0=0.75,u1=0.8},{c={-597.805,59,462.382},n={-0.331,0,-0.944},r={-0.944,0,0.331},w=6.851,h=50,u0=0.8,u1=0.85},{c={-604.026,59,465.191},n={-0.489,0,-0.872},r={-0.872,0,0.489},w=6.851,h=50,u0=0.85,u1=0.9},{c={-609.671,59,469.028},n={-0.631,0,-0.775},r={-0.775,0,0.631},w=6.851,h=50,u0=0.9,u1=0.95},{c={-614.573,59,473.778},n={-0.755,0,-0.655},r={-0.655,0,0.755},w=6.851,h=50,u0=0.95,u1=1}}},
+		["SCR_A_Corner_SW_05"] = {ad="AD_Tokyo2099", kind="holo", layer=0, panels={{c={-599.202,224,516.482},n={0.707,-0,-0.707},r={0.707,0,0.707},w=12,h=48,u0=0,u1=1}}},
+		["SCR_A_Gate_E0_01"] = {ad="AD_SakuraLink", kind="suspended", layer=0, panels={{c={555.4,65.8,-132},n={-1,-0,0},r={0,0,1},w=63.2,h=31.6,u0=0,u1=1}}},
+		["SCR_A_Gate_E0_02"] = {ad="AD_PlayHex", kind="suspended", layer=0, panels={{c={556.7,65.8,-132},n={1,0,-0},r={-0,-0,-1},w=63.2,h=31.6,u0=0,u1=1}}},
+		["SCR_A_Gate_N1_01"] = {ad="AD_SynthFM", kind="suspended", layer=0, panels={{c={150,65.8,-470.4},n={-0,-0,1},r={1,0,-0},w=63.2,h=31.6,u0=0,u1=1}}},
+		["SCR_A_Gate_N1_02"] = {ad="AD_SushiSpeed", kind="suspended", layer=0, panels={{c={150,65.8,-471.7},n={0,0,-1},r={-1,-0,0},w=63.2,h=31.6,u0=0,u1=1}}},
+		["SCR_A_Gate_S2_01"] = {ad="AD_VoltRunner", kind="suspended", layer=0, panels={{c={-266.75,65.8,470.5},n={-0,-0,-1},r={-1,0,-0},w=63.2,h=31.6,u0=0,u1=1}}},
+		["SCR_A_Gate_S2_02"] = {ad="AD_HexLeague", kind="suspended", layer=0, panels={{c={-266.75,65.8,471.8},n={0,0,1},r={1,-0,0},w=63.2,h=31.6,u0=0,u1=1}}},
+		["SCR_A_Gate_W3_01"] = {ad="AD_PlayHex", kind="suspended", layer=0, panels={{c={-554.2,65.8,148},n={1,-0,0},r={0,0,-1},w=63.2,h=31.6,u0=0,u1=1}}},
+		["SCR_A_Gate_W3_02"] = {ad="AD_SynthFM", kind="suspended", layer=0, panels={{c={-555.5,65.8,148},n={-1,0,-0},r={-0,-0,1},w=63.2,h=31.6,u0=0,u1=1}}},
+		["SCR_B_E_01_01"] = {ad="AD_HexLeague", kind="mg_facade", layer=0, panels={{c={660.835,240.169,-553.299},n={-1,-0,0},r={0,0,1},w=25.986,h=12.993,u0=0,u1=1}}},
+		["SCR_B_E_02_01H"] = {ad="AD_Cyber", kind="holo", layer=0, panels={{c={653.353,193.4,-477.454},n={-0,-0,-1},r={-1,-0,0},w=8,h=46.8,u0=0,u1=1}}},
+		["SCR_B_E_02_02H"] = {ad="AD_Tokyo2099", kind="holo", layer=0, panels={{c={653.353,193.4,-476.654},n={0,0,1},r={1,0,-0},w=8,h=46.8,u0=0,u1=1}}},
+		["SCR_B_E_02_03"] = {ad="AD_HexLeague", kind="rooftop", layer=0, panels={{c={660.953,174.307,-501.302},n={-1,-0,0},r={0,0,1},w=45.696,h=22.848,u0=0,u1=1}}},
+		["SCR_B_E_04_01"] = {ad="AD_MindUpload", kind="mg_facade", layer=0, panels={{c={657.484,182.927,-411.226},n={-1,-0,0},r={0,0,1},w=51.707,h=25.853,u0=0,u1=1}}},
+		["SCR_B_E_06_01H"] = {ad="AD_MatchaPlus", kind="holo", layer=0, panels={{c={658.765,200,-264.261},n={-0,-0,-1},r={-1,-0,0},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_E_06_02H"] = {ad="AD_HoloDancer", kind="holo", layer=0, panels={{c={658.765,200,-263.461},n={0,0,1},r={1,0,-0},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_E_07_01"] = {ad="AD_KitsuneMask", kind="mg_facade", layer=0, panels={{c={653.644,191.25,-240.897},n={-1,-0,0},r={0,0,1},w=37.365,h=42.5,u0=0,u1=1}}},
+		["SCR_B_E_08_01H"] = {ad="AD_HoloKoi", kind="holo", layer=0, panels={{c={656.889,195.8,-188.57},n={-0,-0,-1},r={-1,-0,0},w=8,h=51.6,u0=0,u1=1}}},
+		["SCR_B_E_08_02H"] = {ad="AD_BladeEdge", kind="holo", layer=0, panels={{c={656.889,195.8,-187.77},n={0,0,1},r={1,0,-0},w=8,h=51.6,u0=0,u1=1}}},
+		["SCR_B_E_09_01"] = {ad="AD_PlayHex", kind="rooftop", layer=0, panels={{c={665.796,331.41,-132.508},n={-1,-0,0},r={0,0,1},w=42.285,h=21.143,u0=0,u1=1}}},
+		["SCR_B_E_10_01H"] = {ad="AD_HoloDancer", kind="holo", layer=0, panels={{c={664.243,200,-117.427},n={0.981,-0,-0.195},r={-0.195,-0,-0.981},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_E_10_02H"] = {ad="AD_Cyber", kind="holo", layer=0, panels={{c={663.458,200,-117.271},n={-0.981,0,0.195},r={0.195,0,0.981},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_E_11_01H"] = {ad="AD_Cyber", kind="holo", layer=0, panels={{c={667.688,200,-55.201},n={0.981,-0,-0.195},r={-0.195,-0,-0.981},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_E_11_02H"] = {ad="AD_HoloDancer", kind="holo", layer=0, panels={{c={666.903,200,-55.045},n={-0.981,0,0.195},r={0.195,0,0.981},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_E_12_01"] = {ad="AD_OkamiArms", kind="mg_facade", layer=0, panels={{c={651.667,258.779,25.759},n={-1,-0,0},r={0,0,1},w=68.999,h=137.997,u0=0,u1=1}}},
+		["SCR_B_E_13_01H"] = {ad="AD_HoloKoi", kind="holo", layer=0, panels={{c={657.105,215.4,84.239},n={-0,-0,-1},r={-1,-0,0},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_E_13_02H"] = {ad="AD_BladeEdge", kind="holo", layer=0, panels={{c={657.105,215.4,85.039},n={0,0,1},r={1,0,-0},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_E_14_01"] = {ad="AD_KirinDeck", kind="mg_facade", layer=0, panels={{c={651.943,374.809,116.44},n={-1,-0,0},r={0,0,1},w=52.592,h=26.296,u0=0,u1=1}}},
+		["SCR_B_E_14_02"] = {ad="AD_SushiSpeed", kind="rooftop", layer=0, panels={{c={657.443,427.358,116.44},n={-1,-0,0},r={0,0,1},w=43.885,h=21.942,u0=0,u1=1}}},
+		["SCR_B_E_15_01"] = {ad="AD_ArashiSec", kind="mg_facade", layer=0, panels={{c={652.569,327.773,170.036},n={-1,-0,0},r={0,0,1},w=59.237,h=118.475,u0=0,u1=1}}},
+		["SCR_B_E_15_02"] = {ad="AD_MindUpload", kind="rooftop", layer=0, panels={{c={658.069,430.827,170.036},n={-1,-0,0},r={0,0,1},w=53.229,h=26.614,u0=0,u1=1}}},
+		["SCR_B_E_17_01"] = {ad="AD_VoltRunner", kind="mg_facade", layer=0, panels={{c={655.935,372.987,288.744},n={-1,-0,0},r={0,0,1},w=44.223,h=22.111,u0=0,u1=1}}},
+		["SCR_B_E_19_01"] = {ad="AD_ArashiSec", kind="mg_facade", layer=0, panels={{c={658.985,191.25,391.767},n={-1,-0,0},r={0,0,1},w=23.939,h=42.5,u0=0,u1=1}}},
+		["SCR_B_E_21_01H"] = {ad="AD_MatchaPlus", kind="holo", layer=0, panels={{c={652.428,200,482.968},n={-0,-0,-1},r={-1,-0,0},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_E_21_02H"] = {ad="AD_HoloDancer", kind="holo", layer=0, panels={{c={652.428,200,483.768},n={0,0,1},r={1,0,-0},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_E_22_01H"] = {ad="AD_Tokyo2099", kind="holo", layer=0, panels={{c={653.557,193.4,522.977},n={-0,-0,-1},r={-1,-0,0},w=8,h=46.8,u0=0,u1=1}}},
+		["SCR_B_E_22_02H"] = {ad="AD_HoloKoi", kind="holo", layer=0, panels={{c={653.557,193.4,523.777},n={0,0,1},r={1,0,-0},w=8,h=46.8,u0=0,u1=1}}},
+		["SCR_B_E_23_01H"] = {ad="AD_MatchaPlus", kind="holo", layer=0, panels={{c={653.644,200,559.092},n={-0,-0,-1},r={-1,-0,0},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_E_23_02H"] = {ad="AD_Tokyo2099", kind="holo", layer=0, panels={{c={653.644,200,559.892},n={0,0,1},r={1,0,-0},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_E_23_03"] = {ad="AD_MegaSale", kind="crown", layer=0, panels={{c={659.744,227.307,551.924},n={-1,-0,0},r={0,0,1},w=23.229,h=11.614,u0=0,u1=1}}},
+		["SCR_B_N_02_01H"] = {ad="AD_Cyber", kind="holo", layer=0, panels={{c={-742.537,195.8,-575.571},n={-1,-0,0},r={-0,-0,1},w=8,h=51.6,u0=0,u1=1}}},
+		["SCR_B_N_02_02H"] = {ad="AD_BladeEdge", kind="holo", layer=0, panels={{c={-741.737,195.8,-575.571},n={1,0,-0},r={0,0,-1},w=8,h=51.6,u0=0,u1=1}}},
+		["SCR_B_N_04_01H"] = {ad="AD_HoloDancer", kind="holo", layer=0, panels={{c={-628.911,193.4,-571.385},n={-1,-0,0},r={-0,-0,1},w=8,h=46.8,u0=0,u1=1}}},
+		["SCR_B_N_04_02H"] = {ad="AD_Tokyo2099", kind="holo", layer=0, panels={{c={-628.111,193.4,-571.385},n={1,0,-0},r={0,0,-1},w=8,h=46.8,u0=0,u1=1}}},
+		["SCR_B_N_05_01"] = {ad="AD_OrbitalResorts", kind="mg_facade", layer=0, panels={{c={-596.599,201.45,-572.607},n={-0,-0,1},r={1,0,-0},w=48.052,h=62.9,u0=0,u1=1}}},
+		["SCR_B_N_05_02"] = {ad="AD_YumeOptics", kind="rooftop", layer=0, panels={{c={-596.599,256.549,-578.107},n={-0,-0,1},r={1,0,-0},w=38.191,h=19.096,u0=0,u1=1}}},
+		["SCR_B_N_07_01H"] = {ad="AD_MatchaPlus", kind="holo", layer=0, panels={{c={-507.413,200,-573.588},n={-1,-0,0},r={-0,-0,1},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_N_07_02H"] = {ad="AD_Cyber", kind="holo", layer=0, panels={{c={-506.613,200,-573.588},n={1,0,-0},r={0,0,-1},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_N_08_01"] = {ad="AD_Pachinko", kind="mg_facade", layer=0, panels={{c={-482.271,265.974,-573.866},n={-0,-0,1},r={1,0,-0},w=39.528,h=79.056,u0=0,u1=1}}},
+		["SCR_B_N_08_02"] = {ad="AD_SynthFM", kind="rooftop", layer=0, panels={{c={-482.271,326.962,-579.366},n={-0,-0,1},r={1,0,-0},w=27.87,h=13.935,u0=0,u1=1}}},
+		["SCR_B_N_09_01"] = {ad="AD_SushiSpeed", kind="mg_facade", layer=0, panels={{c={-415.358,231.605,-573.574},n={-0,-0,1},r={1,0,-0},w=65.446,h=32.723,u0=0,u1=1}}},
+		["SCR_B_N_10_01"] = {ad="AD_NoirParfum", kind="mg_facade", layer=0, panels={{c={-345.822,344.945,-573.569},n={-0,-0,1},r={1,0,-0},w=54.43,h=108.86,u0=0,u1=1}}},
+		["SCR_B_N_11_01"] = {ad="AD_VoltRunner", kind="rooftop", layer=0, panels={{c={-292.867,324.077,-579.869},n={-0,-0,1},r={1,0,-0},w=18.221,h=9.111,u0=0,u1=1}}},
+		["SCR_B_N_12_01H"] = {ad="AD_HoloKoi", kind="holo", layer=0, panels={{c={-231.464,193.4,-569.67},n={-1,-0,-0},r={-0,-0,1},w=8,h=46.8,u0=0,u1=1}}},
+		["SCR_B_N_12_02H"] = {ad="AD_BladeEdge", kind="holo", layer=0, panels={{c={-230.664,193.4,-569.67},n={1,0,0},r={0,0,-1},w=8,h=46.8,u0=0,u1=1}}},
+		["SCR_B_N_13_01"] = {ad="AD_MindUpload", kind="rooftop", layer=0, panels={{c={-189.061,282.83,-578.68},n={-0,-0,1},r={1,0,-0},w=41.566,h=20.783,u0=0,u1=1}}},
+		["SCR_B_N_14_01"] = {ad="AD_YumeOptics", kind="mg_facade", layer=0, panels={{c={-132.014,212.676,-572.634},n={-0,-0,1},r={1,0,-0},w=39.294,h=19.647,u0=0,u1=1}}},
+		["SCR_B_N_14_02"] = {ad="AD_KirinDeck", kind="rooftop", layer=0, panels={{c={-132.014,254.183,-578.134},n={-0,-0,1},r={1,0,-0},w=25.329,h=12.665,u0=0,u1=1}}},
+		["SCR_B_N_15_01H"] = {ad="AD_BladeEdge", kind="holo", layer=0, panels={{c={-50.268,199.4,-568.403},n={-1,-0,0},r={-0,-0,1},w=8,h=58.8,u0=0,u1=1}}},
+		["SCR_B_N_15_02H"] = {ad="AD_HoloKoi", kind="holo", layer=0, panels={{c={-49.468,199.4,-568.403},n={1,0,-0},r={0,0,-1},w=8,h=58.8,u0=0,u1=1}}},
+		["SCR_B_N_16_01"] = {ad="AD_HexLeague", kind="mg_facade", layer=0, panels={{c={-26.998,340.147,-571.201},n={0,-0,1},r={1,0,-0},w=30.601,h=15.301,u0=0,u1=1}}},
+		["SCR_B_N_18_01H"] = {ad="AD_MatchaPlus", kind="holo", layer=0, panels={{c={95.325,200,-576.215},n={-1,-0,0},r={-0,-0,1},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_N_18_02H"] = {ad="AD_BladeEdge", kind="holo", layer=0, panels={{c={96.125,200,-576.215},n={1,0,-0},r={0,0,-1},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_N_19_01"] = {ad="AD_SakuraLink", kind="mg_facade", layer=0, panels={{c={116.284,198.327,-571.448},n={-0,-0,1},r={1,0,-0},w=29.453,h=14.727,u0=0,u1=1}}},
+		["SCR_B_N_20_01H"] = {ad="AD_Tokyo2099", kind="holo", layer=0, panels={{c={155.617,200,-567.67},n={-1,-0,0},r={-0,-0,1},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_N_20_02H"] = {ad="AD_HoloDancer", kind="holo", layer=0, panels={{c={156.417,200,-567.67},n={1,0,-0},r={0,0,-1},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_N_21_01"] = {ad="AD_PlayHex", kind="rooftop", layer=0, panels={{c={200.142,175.769,-574.609},n={-0,-0,1},r={1,0,-0},w=53.883,h=26.942,u0=0,u1=1}}},
+		["SCR_B_N_22_01"] = {ad="AD_AkaiMotors", kind="mg_facade", layer=0, panels={{c={258.783,278.568,-575.455},n={-0,-0,1},r={1,0,-0},w=43.578,h=21.789,u0=0,u1=1}}},
+		["SCR_B_N_22_02"] = {ad="AD_YumeOptics", kind="rooftop", layer=0, panels={{c={258.783,328.129,-580.955},n={-0,-0,1},r={1,0,-0},w=34.885,h=17.443,u0=0,u1=1}}},
+		["SCR_B_N_23_01"] = {ad="AD_SynthFM", kind="mg_facade", layer=0, panels={{c={320.231,270.711,-573.105},n={-0,-0,1},r={1,0,-0},w=40.016,h=20.008,u0=0,u1=1}}},
+		["SCR_B_N_23_02"] = {ad="AD_MindUpload", kind="crown", layer=0, panels={{c={320.231,301.16,-577.105},n={-0,-0,1},r={1,0,-0},w=30.64,h=15.32,u0=0,u1=1}}},
+		["SCR_B_N_24_01H"] = {ad="AD_Cyber", kind="holo", layer=0, panels={{c={377.273,199.4,-566.916},n={-1,-0,0},r={-0,-0,1},w=8,h=58.8,u0=0,u1=1}}},
+		["SCR_B_N_24_02H"] = {ad="AD_BladeEdge", kind="holo", layer=0, panels={{c={378.073,199.4,-566.916},n={1,0,-0},r={0,0,-1},w=8,h=58.8,u0=0,u1=1}}},
+		["SCR_B_N_24_03"] = {ad="AD_VoltRunner", kind="rooftop", layer=0, panels={{c={360.951,208.194,-574.516},n={-0,-0,1},r={1,0,-0},w=30.644,h=15.322,u0=0,u1=1}}},
+		["SCR_B_N_25_01"] = {ad="AD_KirinDeck", kind="mg_facade", layer=0, panels={{c={397.732,212.106,-568.265},n={-0,-0,1},r={1,0,-0},w=34.032,h=17.016,u0=0,u1=1}}},
+		["SCR_B_N_25_02"] = {ad="AD_HexLeague", kind="rooftop", layer=0, panels={{c={397.732,256.891,-573.765},n={-0,-0,1},r={1,0,-0},w=25.12,h=12.56,u0=0,u1=1}}},
+		["SCR_B_N_28_01H"] = {ad="AD_Tokyo2099", kind="holo", layer=0, panels={{c={516.849,200,-578.895},n={-0.195,-0,-0.981},r={-0.981,-0,0.195},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_N_28_02H"] = {ad="AD_MatchaPlus", kind="holo", layer=0, panels={{c={517.005,200,-578.11},n={0.195,0,0.981},r={0.981,0,-0.195},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_N_29_01H"] = {ad="AD_Cyber", kind="holo", layer=0, panels={{c={596.632,199.4,-575.243},n={-1,-0,0},r={-0,-0,1},w=8,h=58.8,u0=0,u1=1}}},
+		["SCR_B_N_29_02H"] = {ad="AD_BladeEdge", kind="holo", layer=0, panels={{c={597.432,199.4,-575.243},n={1,0,-0},r={0,0,-1},w=8,h=58.8,u0=0,u1=1}}},
+		["SCR_B_N_30_01H"] = {ad="AD_Tokyo2099", kind="holo", layer=0, panels={{c={649.945,199.4,-574.805},n={-1,-0,0},r={-0,-0,1},w=8,h=58.8,u0=0,u1=1}}},
+		["SCR_B_N_30_02H"] = {ad="AD_HoloKoi", kind="holo", layer=0, panels={{c={650.745,199.4,-574.805},n={1,0,-0},r={0,0,-1},w=8,h=58.8,u0=0,u1=1}}},
+		["SCR_B_N_32_01H"] = {ad="AD_HoloDancer", kind="holo", layer=0, panels={{c={766.912,193.4,-575.485},n={-1,-0,0},r={-0,-0,1},w=8,h=46.8,u0=0,u1=1}}},
+		["SCR_B_N_32_02H"] = {ad="AD_HoloDancer", kind="holo", layer=0, panels={{c={767.712,193.4,-575.485},n={1,0,-0},r={0,0,-1},w=8,h=46.8,u0=0,u1=1}}},
+		["SCR_B_N_33_01"] = {ad="AD_PlayHex", kind="mg_facade", layer=0, panels={{c={798.979,196.534,-577.071},n={-0,-0,1},r={1,0,-0},w=28.367,h=14.183,u0=0,u1=1}}},
+		["SCR_B_N_33_02"] = {ad="AD_SakuraLink", kind="rooftop", layer=0, panels={{c={798.979,233.224,-582.571},n={-0,-0,1},r={1,0,-0},w=23.742,h=11.871,u0=0,u1=1}}},
+		["SCR_B_S_01_01"] = {ad="AD_SakuraLink", kind="rooftop", layer=0, panels={{c={795.028,256.702,581.976},n={-0,-0,-1},r={-1,0,-0},w=20.241,h=10.12,u0=0,u1=1}}},
+		["SCR_B_S_02_01H"] = {ad="AD_HoloKoi", kind="holo", layer=0, panels={{c={718.604,200,563.563},n={1,-0,0},r={-0,-0,-1},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_S_02_02H"] = {ad="AD_MatchaPlus", kind="holo", layer=0, panels={{c={717.805,200,563.563},n={-1,0,-0},r={0,0,1},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_S_04_01H"] = {ad="AD_Cyber", kind="holo", layer=0, panels={{c={622.947,193.4,576.206},n={1,-0,0},r={-0,-0,-1},w=8,h=46.8,u0=0,u1=1}}},
+		["SCR_B_S_04_02H"] = {ad="AD_Tokyo2099", kind="holo", layer=0, panels={{c={622.147,193.4,576.206},n={-1,0,-0},r={0,0,1},w=8,h=46.8,u0=0,u1=1}}},
+		["SCR_B_S_05_01"] = {ad="AD_SushiSpeed", kind="mg_facade", layer=0, panels={{c={581.182,271.008,578.126},n={-0,-0,-1},r={-1,0,-0},w=32.574,h=16.287,u0=0,u1=1}}},
+		["SCR_B_S_05_02"] = {ad="AD_YumeOptics", kind="rooftop", layer=0, panels={{c={581.182,304.676,583.626},n={-0,-0,-1},r={-1,0,-0},w=22.655,h=11.327,u0=0,u1=1}}},
+		["SCR_B_S_06_01H"] = {ad="AD_HoloDancer", kind="holo", layer=0, panels={{c={524.876,215.4,569.907},n={1,-0,0},r={-0,-0,-1},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_S_06_02H"] = {ad="AD_BladeEdge", kind="holo", layer=0, panels={{c={524.076,215.4,569.907},n={-1,0,-0},r={0,0,1},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_S_07_01"] = {ad="AD_Pachinko", kind="mg_facade", layer=0, panels={{c={481.66,317.802,570.4},n={-0,-0,-1},r={-1,0,-0},w=44.995,h=89.99,u0=0,u1=1}}},
+		["SCR_B_S_09_01H"] = {ad="AD_MatchaPlus", kind="holo", layer=0, panels={{c={395.145,215.4,579.943},n={0.195,-0,0.981},r={0.981,-0,-0.195},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_S_09_02H"] = {ad="AD_HoloKoi", kind="holo", layer=0, panels={{c={394.989,215.4,579.159},n={-0.195,0,-0.981},r={-0.981,0,0.195},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_S_10_01"] = {ad="AD_HexLeagueTall", kind="mg_facade", layer=0, panels={{c={316.527,201.45,562.927},n={-0,-0,-1},r={-1,0,-0},w=34.102,h=62.9,u0=0,u1=1}}},
+		["SCR_B_S_11_01"] = {ad="AD_OrbitalResorts", kind="mg_facade", layer=0, panels={{c={278.412,191.25,567.404},n={-0,-0,-1},r={-1,0,-0},w=46.022,h=42.5,u0=0,u1=1}}},
+		["SCR_B_S_12_01"] = {ad="AD_AkaiMotors", kind="mg_facade", layer=0, panels={{c={227.122,278.53,577.814},n={-0,-0,-1},r={-1,0,-0},w=42.235,h=21.117,u0=0,u1=1}}},
+		["SCR_B_S_14_01H"] = {ad="AD_Cyber", kind="holo", layer=0, panels={{c={108.374,195.8,569.492},n={1,-0,0},r={-0,-0,-1},w=8,h=51.6,u0=0,u1=1}}},
+		["SCR_B_S_14_02H"] = {ad="AD_HoloKoi", kind="holo", layer=0, panels={{c={107.574,195.8,569.492},n={-1,0,-0},r={0,0,1},w=8,h=51.6,u0=0,u1=1}}},
+		["SCR_B_S_15_01"] = {ad="AD_MegaSale", kind="rooftop", layer=0, panels={{c={76.742,281.281,581.133},n={-0,-0,-1},r={-1,0,-0},w=21.788,h=10.894,u0=0,u1=1}}},
+		["SCR_B_S_16_01"] = {ad="AD_YumeOptics", kind="mg_facade", layer=0, panels={{c={36.143,310.758,570.505},n={-0,-0,-1},r={-1,0,-0},w=46.053,h=23.026,u0=0,u1=1}}},
+		["SCR_B_S_16_02"] = {ad="AD_KirinDeck", kind="rooftop", layer=0, panels={{c={36.143,356.722,576.005},n={-0,-0,-1},r={-1,0,-0},w=35.59,h=17.795,u0=0,u1=1}}},
+		["SCR_B_S_17_01"] = {ad="AD_NekoNet", kind="mg_facade", layer=0, panels={{c={-22.121,316.652,575.108},n={-0,-0,-1},r={-1,0,-0},w=47.855,h=95.709,u0=0,u1=1}}},
+		["SCR_B_S_22_01"] = {ad="AD_VoltRunner", kind="rooftop", layer=0, panels={{c={-308.829,285.34,577.594},n={-0,-0,-1},r={-1,0,-0},w=49.255,h=24.627,u0=0,u1=1}}},
+		["SCR_B_S_26_01"] = {ad="AD_HexLeague", kind="mg_facade", layer=0, panels={{c={-496.902,186.412,570.373},n={-0,-0,-1},r={-1,0,-0},w=53.892,h=26.946,u0=0,u1=1}}},
+		["SCR_B_S_28_01H"] = {ad="AD_Tokyo2099", kind="holo", layer=0, panels={{c={-611.331,195.8,566.043},n={1,-0,0},r={-0,-0,-1},w=8,h=51.6,u0=0,u1=1}}},
+		["SCR_B_S_28_02H"] = {ad="AD_MatchaPlus", kind="holo", layer=0, panels={{c={-612.131,195.8,566.043},n={-1,0,-0},r={0,0,1},w=8,h=51.6,u0=0,u1=1}}},
+		["SCR_B_S_28_03"] = {ad="AD_SynthFM", kind="rooftop", layer=0, panels={{c={-593.176,186.512,573.643},n={-0,-0,-1},r={-1,0,-0},w=34.309,h=17.154,u0=0,u1=1}}},
+		["SCR_B_S_29_01"] = {ad="AD_AkaiMotors", kind="mg_facade", layer=0, panels={{c={-629.39,273.605,576.325},n={-0,-0,-1},r={-1,0,-0},w=28.325,h=14.163,u0=0,u1=1}}},
+		["SCR_B_S_29_02"] = {ad="AD_PlayHex", kind="crown", layer=0, panels={{c={-629.39,297.554,580.325},n={-0,-0,-1},r={-1,0,-0},w=16.216,h=8.108,u0=0,u1=1}}},
+		["SCR_B_S_30_01"] = {ad="AD_Titan3", kind="crown", layer=0, panels={{c={-680.549,278.051,577.55},n={-0,-0,-1},r={-1,0,-0},w=43.178,h=17.102,u0=0,u1=1}}},
+		["SCR_B_S_31_01H"] = {ad="AD_BladeEdge", kind="holo", layer=0, panels={{c={-733.969,200,570.565},n={1,-0,0},r={-0,-0,-1},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_S_31_02H"] = {ad="AD_HoloDancer", kind="holo", layer=0, panels={{c={-734.769,200,570.565},n={-1,0,-0},r={0,0,1},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_S_32_01"] = {ad="AD_MegaSale", kind="rooftop", layer=0, panels={{c={-765.276,167.813,577.689},n={-0,-0,-1},r={-1,0,-0},w=31.944,h=15.972,u0=0,u1=1}}},
+		["SCR_B_S_33_01"] = {ad="AD_MegaSale", kind="crown", layer=0, panels={{c={-801.581,162.442,573.51},n={-0,-0,-1},r={-1,0,-0},w=19.766,h=9.883,u0=0,u1=1}}},
+		["SCR_B_W_01_01"] = {ad="AD_SushiSpeed", kind="rooftop", layer=0, panels={{c={-653.839,334.365,539.302},n={1,-0,0},r={0,0,-1},w=60,h=30,u0=0,u1=1}}},
+		["SCR_B_W_03_01H"] = {ad="AD_Cyber", kind="holo", layer=0, panels={{c={-658.677,200,433.181},n={-0,-0,1},r={1,-0,0},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_W_03_02H"] = {ad="AD_HoloDancer", kind="holo", layer=0, panels={{c={-658.677,200,432.381},n={0,0,-1},r={-1,0,-0},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_W_04_01"] = {ad="AD_KirinDeck", kind="mg_facade", layer=0, panels={{c={-656.042,214.153,405.51},n={1,-0,0},r={0,0,-1},w=42.835,h=21.417,u0=0,u1=1}}},
+		["SCR_B_W_05_01"] = {ad="AD_MegaSale", kind="rooftop", layer=0, panels={{c={-662.476,362.772,344.654},n={1,-0,0},r={0,0,-1},w=59.281,h=29.641,u0=0,u1=1}}},
+		["SCR_B_W_06_01"] = {ad="AD_NeonNoodle", kind="mg_facade", layer=0, panels={{c={-663.287,191.25,263.606},n={1,-0,0},r={0,0,-1},w=49.425,h=42.5,u0=0,u1=1}}},
+		["SCR_B_W_07_01"] = {ad="AD_YumeOptics", kind="rooftop", layer=0, panels={{c={-659.819,207.035,221.206},n={1,-0,0},r={0,0,-1},w=23.519,h=11.759,u0=0,u1=1}}},
+		["SCR_B_W_08_01"] = {ad="AD_SushiSpeed", kind="rooftop", layer=0, panels={{c={-660.286,239.03,163.851},n={1,-0,0},r={0,0,-1},w=60,h=30,u0=0,u1=1}}},
+		["SCR_B_W_09_01"] = {ad="AD_NexusAndroids", kind="mg_facade", layer=0, panels={{c={-657.265,352.742,98.928},n={1,-0,0},r={0,0,-1},w=42.181,h=84.361,u0=0,u1=1}}},
+		["SCR_B_W_09_02"] = {ad="AD_VoltRunner", kind="rooftop", layer=0, panels={{c={-662.765,429.581,98.928},n={1,-0,0},r={0,0,-1},w=53.408,h=26.704,u0=0,u1=1}}},
+		["SCR_B_W_10_01"] = {ad="AD_AikoLive", kind="mg_facade", layer=0, panels={{c={-661.232,361.293,37.688},n={1,-0,0},r={0,0,-1},w=29.574,h=59.148,u0=0,u1=1}}},
+		["SCR_B_W_12_01"] = {ad="AD_AkaiMotors", kind="rooftop", layer=0, panels={{c={-653.905,232.314,-38.881},n={1,-0,0},r={0,0,-1},w=36.763,h=18.382,u0=0,u1=1}}},
+		["SCR_B_W_13_01H"] = {ad="AD_Tokyo2099", kind="holo", layer=0, panels={{c={-656.647,200,-107.371},n={-0,-0,1},r={1,-0,0},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_W_13_02H"] = {ad="AD_BladeEdge", kind="holo", layer=0, panels={{c={-656.647,200,-108.171},n={0,0,-1},r={-1,0,-0},w=8,h=60,u0=0,u1=1}}},
+		["SCR_B_W_14_01"] = {ad="AD_AkaiMotors", kind="crown", layer=0, panels={{c={-653.679,385.992,-140.714},n={1,-0,0},r={0,0,-1},w=33.966,h=16.983,u0=0,u1=1}}},
+		["SCR_B_W_15_01"] = {ad="AD_AikoLive", kind="mg_facade", layer=0, panels={{c={-656.744,345.716,-185.255},n={1,-0,0},r={0,0,-1},w=48.677,h=97.354,u0=0,u1=1}}},
+		["SCR_B_W_18_01"] = {ad="AD_MindUpload", kind="rooftop", layer=0, panels={{c={-657.431,332.84,-372.048},n={1,-0,0},r={0,0,-1},w=37.304,h=18.652,u0=0,u1=1}}},
+		["SCR_B_W_19_01"] = {ad="AD_OkamiArms", kind="mg_facade", layer=0, panels={{c={-651.713,221.85,-416.809},n={1,-0,0},r={0,0,-1},w=54.029,h=103.7,u0=0,u1=1}}},
+		["SCR_B_W_20_01"] = {ad="AD_MindUpload", kind="rooftop", layer=0, panels={{c={-659.959,304.232,-457.785},n={1,-0,0},r={0,0,-1},w=29.555,h=14.778,u0=0,u1=1}}},
+		["SCR_B_W_21_01H"] = {ad="AD_HoloKoi", kind="holo", layer=0, panels={{c={-652.166,195.8,-511.429},n={-0,-0,1},r={1,-0,0},w=8,h=51.6,u0=0,u1=1}}},
+		["SCR_B_W_21_02H"] = {ad="AD_MatchaPlus", kind="holo", layer=0, panels={{c={-652.166,195.8,-512.229},n={0,0,-1},r={-1,0,-0},w=8,h=51.6,u0=0,u1=1}}},
+		["SCR_B_W_22_01H"] = {ad="AD_Cyber", kind="holo", layer=0, panels={{c={-657.606,195.8,-559.574},n={-0,-0,1},r={1,-0,0},w=8,h=51.6,u0=0,u1=1}}},
+		["SCR_B_W_22_02H"] = {ad="AD_Tokyo2099", kind="holo", layer=0, panels={{c={-657.606,195.8,-560.374},n={0,0,-1},r={-1,0,-0},w=8,h=51.6,u0=0,u1=1}}},
+		["SCR_B_W_22_03"] = {ad="AD_PlayHex", kind="rooftop", layer=0, panels={{c={-665.206,185.744,-543.51},n={1,-0,0},r={0,0,-1},w=30.128,h=15.064,u0=0,u1=1}}},
+		["SCR_B_Mega_01_01"] = {ad="AD_ArashiSec", kind="mega", layer=0, panels={{c={1277.52,469.183,-394.041},n={-1,-0,0},r={0,0,1},w=61.647,h=123.295,u0=0,u1=1}}},
+		["SCR_B_Mega_02_01"] = {ad="AD_DenkiCola", kind="mega", layer=0, panels={{c={1274.96,666.059,-1022.9},n={-1,-0,0},r={0,0,1},w=70,h=140,u0=0,u1=1}}},
+		["SCR_B_Mega_03_01"] = {ad="AD_Pachinko", kind="mega", layer=0, panels={{c={503.902,503.338,-1342.84},n={-0,-0,1},r={1,0,-0},w=69.753,h=139.505,u0=0,u1=1}}},
+		["SCR_B_Mega_04_01"] = {ad="AD_HexLeagueTall", kind="mega", layer=0, panels={{c={-455.145,405.972,-1357.93},n={-0,-0,1},r={1,0,-0},w=68.263,h=136.527,u0=0,u1=1}}},
+		["SCR_B_Mega_05_01"] = {ad="AD_ArashiSec", kind="mega", layer=0, panels={{c={-1238.32,399.416,-1149.21},n={1,-0,0},r={0,0,-1},w=70,h=140,u0=0,u1=1}}},
+		["SCR_B_Mega_06_01"] = {ad="AD_DenkiCola", kind="mega", layer=0, panels={{c={-1302.38,694.912,-559.815},n={1,-0,0},r={0,0,-1},w=64.566,h=129.133,u0=0,u1=1}}},
+		["SCR_B_Mega_07_01"] = {ad="AD_HexLeagueTall", kind="mega", layer=0, panels={{c={-1262.46,520.027,117.458},n={1,-0,0},r={0,0,-1},w=66.767,h=133.535,u0=0,u1=1}}},
+		["SCR_B_Mega_08_01"] = {ad="AD_NekoNet", kind="mega", layer=0, panels={{c={-1192.47,454.125,1289},n={-0,-0,-1},r={-1,0,-0},w=62.109,h=124.218,u0=0,u1=1}}},
+		["SCR_B_Mega_09_01"] = {ad="AD_NexusAndroids", kind="mega", layer=0, panels={{c={-486.59,473.006,1354.09},n={-0,-0,-1},r={-1,0,-0},w=67.85,h=135.7,u0=0,u1=1}}},
+		["SCR_B_Mega_10_01"] = {ad="AD_OkamiArms", kind="mega", layer=0, panels={{c={423.712,378.303,1348.04},n={-0,-0,-1},r={-1,0,-0},w=66.934,h=133.868,u0=0,u1=1}}},
+		["SCR_B_Mega_11_01"] = {ad="AD_AikoLive", kind="mega", layer=0, panels={{c={1009.02,284.479,1290.26},n={-0,-0,-1},r={-1,0,-0},w=69.092,h=138.184,u0=0,u1=1}}},
+		["SCR_B_Mega_12_01"] = {ad="AD_HexLeagueTall", kind="mega", layer=0, panels={{c={1274.05,293.099,627.059},n={-1,-0,0},r={0,0,1},w=68.186,h=136.373,u0=0,u1=1}}},
+		["SCR_B_Sky_W3_S1_near_01"] = {ad="AD_SynthFM", kind="skyline", layer=0, panels={{c={-1013.93,353.945,334.338},n={1,-0,0},r={0,0,-1},w=55.511,h=27.755,u0=0,u1=1}}},
+		["SCR_B_Sky_W3_N1_near_01"] = {ad="AD_SakuraLink", kind="skyline", layer=0, panels={{c={-1025.92,429.332,-422.902},n={1,-0,0},r={0,0,-1},w=42.099,h=21.05,u0=0,u1=1}}},
+		["SCR_B_Sky_W3_N2_near_01"] = {ad="AD_YumeOptics", kind="skyline", layer=0, panels={{c={-1018.45,541.563,-619.45},n={1,-0,0},r={0,0,-1},w=62.58,h=31.29,u0=0,u1=1}}},
+		["SCR_B_Sky_W3_N2_near_02"] = {ad="AD_VoltRunner", kind="skyline", layer=0, panels={{c={-1032.21,385.463,-859.873},n={1,-0,0},r={0,0,-1},w=56.189,h=28.095,u0=0,u1=1}}},
+		["SCR_B_Sky_W2_N0_near_01"] = {ad="AD_MindUpload", kind="skyline", layer=0, panels={{c={-913.879,269.033,198.602},n={1,-0,0},r={0,0,-1},w=79.41,h=39.705,u0=0,u1=1}}},
+		["SCR_B_Sky_W2_N0_near_02"] = {ad="AD_AkaiMotors", kind="skyline", layer=0, panels={{c={-890.142,517.9,105.528},n={1,-0,0},r={0,0,-1},w=66.573,h=33.286,u0=0,u1=1}}},
+		["SCR_B_Sky_W2_N0_near_03"] = {ad="AD_KirinDeck", kind="skyline", layer=0, panels={{c={-909.054,410.836,-108.502},n={1,-0,0},r={0,0,-1},w=58.787,h=29.393,u0=0,u1=1}}},
+		["SCR_B_Sky_W2_N1_near_01"] = {ad="AD_SynthFM", kind="skyline", layer=0, panels={{c={-914.186,523.175,-315.137},n={1,-0,0},r={0,0,-1},w=58.491,h=29.246,u0=0,u1=1}}},
+		["SCR_B_Sky_W2_N1_near_02"] = {ad="AD_MegaSale", kind="skyline", layer=0, panels={{c={-897.585,334.959,-413.521},n={1,-0,0},r={0,0,-1},w=70.541,h=35.271,u0=0,u1=1}}},
+		["SCR_B_Sky_W2_S2_near_01"] = {ad="AD_SushiSpeed", kind="skyline", layer=0, panels={{c={-826.605,334.397,611.682},n={1,-0,0},r={0,0,-1},w=68.429,h=34.214,u0=0,u1=1}}},
+		["SCR_B_Sky_W2_S1_near_01"] = {ad="AD_SakuraLink", kind="skyline", layer=0, panels={{c={-833.053,246.101,520.965},n={1,-0,0},r={0,0,-1},w=68.409,h=34.205,u0=0,u1=1}}},
+		["SCR_B_Sky_W2_N0_near_04"] = {ad="AD_PlayHex", kind="skyline", layer=0, panels={{c={-812.462,389.484,90.018},n={1,-0,0},r={0,0,-1},w=77.616,h=38.808,u0=0,u1=1}}},
+		["SCR_B_Sky_W2_N0_near_05"] = {ad="AD_HexLeague", kind="skyline", layer=0, panels={{c={-792.007,453.293,-8.96},n={1,-0,0},r={0,0,-1},w=74.465,h=37.233,u0=0,u1=1}}},
+		["SCR_B_Sky_W2_N2_near_01"] = {ad="AD_YumeOptics", kind="skyline", layer=0, panels={{c={-806.647,286.88,-750.659},n={1,-0,0},r={0,0,-1},w=47.147,h=23.573,u0=0,u1=1}}},
+		["SCR_B_Sky_W2_S2_near_02"] = {ad="AD_MegaSale", kind="skyline", layer=0, panels={{c={-736.168,429.213,830.464},n={-0,-0,-1},r={-1,0,-0},w=45.483,h=22.742,u0=0,u1=1}}},
+		["SCR_B_Sky_W1_N3_near_01"] = {ad="AD_VoltRunner", kind="skyline", layer=0, panels={{c={-398.182,679.535,-1014.6},n={-0,-0,1},r={1,0,-0},w=65.827,h=32.914,u0=0,u1=1}}},
+		["SCR_B_Sky_W1_S2_near_01"] = {ad="AD_KirinDeck", kind="skyline", layer=0, panels={{c={-332.517,254.481,822.514},n={-0,-0,-1},r={-1,0,-0},w=38.616,h=19.308,u0=0,u1=1}}},
+		["SCR_B_Sky_W1_N2_near_01"] = {ad="AD_PlayHex", kind="skyline", layer=0, panels={{c={-338.891,302.636,-834.685},n={-0,-0,1},r={1,0,-0},w=57.048,h=28.524,u0=0,u1=1}}},
+		["SCR_B_Sky_E0_S2_near_01"] = {ad="AD_SynthFM", kind="skyline", layer=0, panels={{c={-112.957,458.52,820.926},n={-0,-0,-1},r={-1,0,-0},w=73.842,h=36.921,u0=0,u1=1}}},
+		["SCR_B_Sky_E0_N2_near_01"] = {ad="AD_SakuraLink", kind="skyline", layer=0, panels={{c={7.714,248.383,-807.565},n={-0,-0,1},r={1,0,-0},w=58.068,h=29.034,u0=0,u1=1}}},
+		["SCR_B_Sky_E0_N3_near_01"] = {ad="AD_SushiSpeed", kind="skyline", layer=0, panels={{c={-9.341,581.075,-1032.43},n={-0,-0,1},r={1,0,-0},w=68.928,h=34.464,u0=0,u1=1}}},
+		["SCR_B_Sky_E0_S2_near_02"] = {ad="AD_HexLeague", kind="skyline", layer=0, panels={{c={105.721,749.074,913.172},n={-0,-0,-1},r={-1,0,-0},w=64.877,h=32.438,u0=0,u1=1}}},
+		["SCR_B_Sky_E0_S2_near_03"] = {ad="AD_YumeOptics", kind="skyline", layer=0, panels={{c={119.57,256.699,796.836},n={-0,-0,-1},r={-1,0,-0},w=60.633,h=30.317,u0=0,u1=1}}},
+		["SCR_B_Sky_E0_N3_near_02"] = {ad="AD_PlayHex", kind="skyline", layer=0, panels={{c={122.818,679.284,-1030.01},n={-0,-0,1},r={1,0,-0},w=61.005,h=30.502,u0=0,u1=1}}},
+		["SCR_B_Sky_E1_S3_near_01"] = {ad="AD_SushiSpeed", kind="skyline", layer=0, panels={{c={213.81,504.576,1002.97},n={-0,-0,-1},r={-1,0,-0},w=66.106,h=33.053,u0=0,u1=1}}},
+		["SCR_B_Sky_E1_N2_near_01"] = {ad="AD_MindUpload", kind="skyline", layer=0, panels={{c={218.473,339.21,-822.023},n={-0,-0,1},r={1,0,-0},w=74.934,h=37.467,u0=0,u1=1}}},
+		["SCR_B_Sky_E1_S2_near_01"] = {ad="AD_AkaiMotors", kind="skyline", layer=0, panels={{c={322.792,310.505,916.16},n={-0,-0,-1},r={-1,0,-0},w=68.607,h=34.304,u0=0,u1=1}}},
+		["SCR_B_Sky_E1_N2_near_02"] = {ad="AD_SakuraLink", kind="skyline", layer=0, panels={{c={319.634,411.082,-834.746},n={-0,-0,1},r={1,0,-0},w=52.467,h=26.234,u0=0,u1=1}}},
+		["SCR_B_Sky_E1_S2_near_02"] = {ad="AD_SynthFM", kind="skyline", layer=0, panels={{c={546.663,416.552,834.145},n={-0,-0,-1},r={-1,0,-0},w=57.763,h=28.881,u0=0,u1=1}}},
+		["SCR_B_Sky_E2_N2_near_01"] = {ad="AD_MegaSale", kind="skyline", layer=0, panels={{c={626.522,369.953,-911.742},n={-0,-0,1},r={1,0,-0},w=51.185,h=25.593,u0=0,u1=1}}},
+		["SCR_B_Sky_E2_N3_near_01"] = {ad="AD_HexLeague", kind="skyline", layer=0, panels={{c={644.933,360.299,-1036.18},n={-0,-0,1},r={1,0,-0},w=40.729,h=20.364,u0=0,u1=1}}},
+		["SCR_B_Sky_E2_S1_near_01"] = {ad="AD_MegaSale", kind="skyline", layer=0, panels={{c={792.787,228.776,307.073},n={-1,-0,0},r={0,0,1},w=75.22,h=37.61,u0=0,u1=1}}},
+		["SCR_B_Sky_E2_N0_near_01"] = {ad="AD_KirinDeck", kind="skyline", layer=0, panels={{c={825.48,253.623,-113.332},n={-1,-0,0},r={0,0,1},w=66.292,h=33.146,u0=0,u1=1}}},
+		["SCR_B_Sky_E2_N1_near_01"] = {ad="AD_SynthFM", kind="skyline", layer=0, panels={{c={830.65,501.231,-314.46},n={-1,-0,0},r={0,0,1},w=43.831,h=21.916,u0=0,u1=1}}},
+		["SCR_B_Sky_E2_N2_near_02"] = {ad="AD_SushiSpeed", kind="skyline", layer=0, panels={{c={849.191,286.274,-931.382},n={-0,-0,1},r={1,0,-0},w=62.667,h=31.334,u0=0,u1=1}}},
+		["SCR_B_Sky_E2_S2_near_01"] = {ad="AD_AkaiMotors", kind="skyline", layer=0, panels={{c={957.855,648.113,942.233},n={-0,-0,-1},r={-1,0,-0},w=53.961,h=26.98,u0=0,u1=1}}},
+		["SCR_B_Sky_E2_S1_near_02"] = {ad="AD_AkaiMotors", kind="skyline", layer=0, panels={{c={943.571,329.901,204.112},n={-1,-0,0},r={0,0,1},w=50.868,h=25.434,u0=0,u1=1}}},
+		["SCR_B_Sky_E2_N1_near_02"] = {ad="AD_KirinDeck", kind="skyline", layer=0, panels={{c={896.711,317.902,-328.614},n={-1,-0,0},r={0,0,1},w=61.009,h=30.504,u0=0,u1=1}}},
+		["SCR_B_Sky_E3_S2_near_01"] = {ad="AD_HexLeague", kind="skyline", layer=0, panels={{c={1010.79,465.986,959.984},n={-1,-0,0},r={0,0,1},w=76.383,h=38.192,u0=0,u1=1}}},
+		["SCR_B_Sky_E3_S2_near_02"] = {ad="AD_MindUpload", kind="skyline", layer=0, panels={{c={1033.04,571.076,834.435},n={-1,-0,0},r={0,0,1},w=51.368,h=25.684,u0=0,u1=1}}},
+		["SCR_B_Sky_E3_S1_near_01"] = {ad="AD_MindUpload", kind="skyline", layer=0, panels={{c={1010.33,386.08,413.365},n={-1,-0,0},r={0,0,1},w=57.511,h=28.755,u0=0,u1=1}}},
+		["SCR_B_Sky_E3_N0_near_01"] = {ad="AD_SakuraLink", kind="skyline", layer=0, panels={{c={1048.85,527.059,-123.542},n={-1,-0,0},r={0,0,1},w=43.056,h=21.528,u0=0,u1=1}}},
+		["SCR_B_Sky_E3_N1_near_01"] = {ad="AD_HexLeague", kind="skyline", layer=0, panels={{c={1037.26,441.401,-412.877},n={-1,-0,0},r={0,0,1},w=58.03,h=29.015,u0=0,u1=1}}},
+		["SCR_B_Sky_E3_N2_near_01"] = {ad="AD_PlayHex", kind="skyline", layer=0, panels={{c={1011.67,363.243,-841.937},n={-1,-0,0},r={0,0,1},w=60.07,h=30.035,u0=0,u1=1}}},
+		["SCR_B_Sky_E3_N2_near_02"] = {ad="AD_YumeOptics", kind="skyline", layer=0, panels={{c={1027.56,547.012,-968.693},n={-1,-0,0},r={0,0,1},w=68.565,h=34.282,u0=0,u1=1}}},
+	},
+	ads = {
+		["AD_AikoLive"] = {512, 1024},
+		["AD_AkaiMotors"] = {1024, 512},
+		["AD_ArashiSec"] = {512, 1024},
+		["AD_BladeEdge"] = {256, 1024},
+		["AD_CourtKings"] = {1024, 1024},
+		["AD_Cyber"] = {256, 1024},
+		["AD_DataStream"] = {1024, 256},
+		["AD_DenkiCola"] = {512, 1024},
+		["AD_Hanabi"] = {1024, 1024},
+		["AD_HexLeague"] = {1024, 512},
+		["AD_HexLeagueTall"] = {512, 1024},
+		["AD_HoloDancer"] = {256, 1024},
+		["AD_HoloKoi"] = {256, 1024},
+		["AD_Karaoke24"] = {1024, 1024},
+		["AD_KirinDeck"] = {1024, 512},
+		["AD_KitsuneMask"] = {1024, 1024},
+		["AD_KoiAir"] = {1024, 256},
+		["AD_MatchaPlus"] = {256, 1024},
+		["AD_MegaSale"] = {1024, 512},
+		["AD_MindUpload"] = {1024, 512},
+		["AD_MiraiBank"] = {1024, 256},
+		["AD_NanoMed"] = {1024, 256},
+		["AD_NekoNet"] = {512, 1024},
+		["AD_NeoShibuya"] = {1024, 384},
+		["AD_NeonNoodle"] = {1024, 1024},
+		["AD_NewsTicker"] = {1024, 256},
+		["AD_NexusAndroids"] = {512, 1024},
+		["AD_NoirParfum"] = {512, 1024},
+		["AD_OkamiArms"] = {512, 1024},
+		["AD_Onigiri24"] = {1024, 1024},
+		["AD_OrbitalResorts"] = {1024, 1024},
+		["AD_Pachinko"] = {512, 1024},
+		["AD_PlayHex"] = {1024, 512},
+		["AD_RamenIchiban"] = {1024, 256},
+		["AD_RyuGames"] = {1024, 1024},
+		["AD_SakuraLink"] = {1024, 512},
+		["AD_ScanMe"] = {1024, 1024},
+		["AD_ShibuyaKanji"] = {1024, 384},
+		["AD_SushiSpeed"] = {1024, 512},
+		["AD_SynthFM"] = {1024, 512},
+		["AD_TipOff"] = {1024, 256},
+		["AD_Titan3"] = {1024, 384},
+		["AD_Tokyo2099"] = {256, 1024},
+		["AD_VoltRunner"] = {1024, 512},
+		["AD_YumeOptics"] = {1024, 512},
+	},
+	lights = {
+		{kind="point", pos={543.4,6,-377.615}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={542.4,160.139,-373.38}, color={120,200,255}, range=40, brightness=1.2, dir={-1,-0,0}},
+		{kind="point", pos={609.924,257.054,-372.246}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={541.35,6,-354.924}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={541.35,6,-337.532}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={540.35,127.746,-341.288}, color={255,120,220}, range=40, brightness=1.2, dir={-1,-0,0}},
+		{kind="point", pos={542.2,6,-313.025}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={541.2,97.607,-313.025}, color={120,200,255}, range=40, brightness=1.2, dir={-1,-0,0}},
+		{kind="point", pos={543.7,6,-297.475}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={541.584,6,-285.781}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={542.2,6,-261.44}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={543.7,6,-247.347}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={543.7,6,-227.523}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={542.2,6,-204.03}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={543.4,6,-183.791}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={584.539,222.387,-178.741}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={542.2,6,-84.85}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={541.35,6,-68.861}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={613.178,228.727,-63.366}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={543.4,6,-38.434}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={535.4,51.258,-38.434}, color={255,140,230}, range=60, brightness=1.6, dir={-1,-0,0}},
+		{kind="point", pos={542.2,6,-26.901}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={596.474,275.523,-17.898}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={541.35,6,-2.656}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={541.35,6,18.454}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={589.764,151.563,11.401}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={543.9,6,35.989}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={543.9,6,59.34}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={543.9,6,80.293}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={541.35,6,93.353}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={541.35,6,116.212}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={543.9,6,128.226}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={543.3,6,145.981}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={543.3,6,171.455}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={543.3,6,192.655}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={535.3,78.6,170}, color={255,140,230}, range=60, brightness=1.6, dir={-1,-0,0}},
+		{kind="surface", pos={532.3,225,170}, color={120,200,255}, range=40, brightness=1.2, dir={-1,-0,0}},
+		{kind="point", pos={580.175,505.656,170}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={525.3,60,170}, color={255,60,200}, range=60, brightness=2},
+		{kind="point", pos={541.35,6,203.787}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={541.35,6,228.419}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={540.35,167.281,217.346}, color={120,200,255}, range=40, brightness=1.2, dir={-1,-0,0}},
+		{kind="point", pos={543.4,6,242.071}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={543.4,6,257.325}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={542.9,6,265.532}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={542.9,6,285.004}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={541.9,164.556,282.436}, color={120,200,255}, range=40, brightness=1.2, dir={-1,-0,0}},
+		{kind="point", pos={616.34,288.8,284.743}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={541.35,6,317.32}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={541.35,6,341.592}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={533.35,62,330.674}, color={255,140,230}, range=60, brightness=1.6, dir={-1,-0,0}},
+		{kind="point", pos={542.2,6,354.011}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={542.2,6,373.497}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={592.555,231.441,365.692}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={-462.75,6,-458}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-436.339,6,-456.35}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-414.083,6,-456.35}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={-423.492,29.301,-448.35}, color={255,140,230}, range=60, brightness=1.6, dir={-0,-0,1}},
+		{kind="point", pos={-396.567,6,-457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-374.287,6,-457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-351.378,6,-458.4}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-330.914,6,-458.4}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={-339.799,59.298,-447.9}, color={255,140,230}, range=60, brightness=1.6, dir={-0,-0,1}},
+		{kind="point", pos={-316.615,6,-457.9}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-293.379,6,-457.9}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={-296.803,148.439,-464.424}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="point", pos={-269.195,6,-456.878}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={-269.195,117.275,-448.878}, color={255,140,230}, range=60, brightness=1.6, dir={-0,-0,1}},
+		{kind="point", pos={-254.012,6,-457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-230.288,6,-458.4}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-213.209,6,-458.4}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={-222.945,55.384,-458.4}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="point", pos={-201.217,6,-458.7}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={-201.217,54.832,-450.7}, color={255,140,230}, range=60, brightness=1.6, dir={-0,-0,1}},
+		{kind="point", pos={-181.345,6,-456.647}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-169.168,6,-458.9}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-151.013,6,-458.9}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-118.266,6,-457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-92.056,6,-458.4}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-66.108,6,-458.85}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={-66.108,85.44,-450.85}, color={255,140,230}, range=60, brightness=1.6, dir={-0,-0,1}},
+		{kind="point", pos={-52.118,6,-458.4}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={-52.118,78.141,-450.4}, color={255,140,230}, range=60, brightness=1.6, dir={-0,-0,1}},
+		{kind="point", pos={-40.232,6,-457.5}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-17.604,6,-457.5}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={-30,58.776,-449.5}, color={255,140,230}, range=60, brightness=1.6, dir={-0,-0,1}},
+		{kind="surface", pos={-30,225,-446.5}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="point", pos={-30,465.636,-493.855}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={-30,60,-439.5}, color={255,60,200}, range=60, brightness=2},
+		{kind="point", pos={-10.205,6,-457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={-6.44,45.006,-449.2}, color={255,140,230}, range=60, brightness=1.6, dir={-0,-0,1}},
+		{kind="point", pos={7.78,6,-458.4}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={28.339,6,-456.35}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={45.57,6,-456.35}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={60.655,6,-458.85}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={60.655,104.618,-450.85}, color={255,140,230}, range=60, brightness=1.6, dir={-0,-0,1}},
+		{kind="point", pos={73.124,6,-457.9}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={91.902,6,-457.9}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={105.297,6,-458.4}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={192.275,6,-457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={211.138,6,-457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={219.948,6,-456.35}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={245.017,6,-456.35}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={256.495,6,-457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={263.022,171.228,-456.2}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="point", pos={278.283,6,-457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={314.442,6,-458.7}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={340.05,6,-458.7}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={332.626,89.381,-456.9}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="point", pos={359.777,6,-456.58}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={380.338,6,-456.58}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={370.643,118.342,-455.58}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="point", pos={397.002,6,-457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={397.002,95.858,-449.2}, color={255,140,230}, range=60, brightness=1.6, dir={-0,-0,1}},
+		{kind="point", pos={408.937,6,-456.35}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={431.267,6,-456.35}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={422.291,113.646,-447.85}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="surface", pos={422.291,150.908,-455.35}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="point", pos={450.132,6,-458.4}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={453.138,249.605,-516.98}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={463.731,6,457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={435.631,6,456.35}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={412.068,6,456.35}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={425.488,225.635,504.471}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={403.302,6,457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={379.69,6,457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={368.975,6,457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={368.975,83.51,449.2}, color={255,140,230}, range=60, brightness=1.6, dir={-0,-0,-1}},
+		{kind="point", pos={356.456,6,457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={336.114,6,457.9}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={321.271,321.494,513.835}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={304.444,6,458.4}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={281.855,6,458.4}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={257.776,6,458.4}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={280,79.7,450.4}, color={255,140,230}, range=60, brightness=1.6, dir={-0,-0,-1}},
+		{kind="surface", pos={280,284.7,447.4}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,-1}},
+		{kind="point", pos={280,501.008,493.614}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={280,60,440.4}, color={255,60,200}, range=60, brightness=2},
+		{kind="point", pos={244.135,6,458.4}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={238.827,175.81,457.4}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,-1}},
+		{kind="point", pos={239.77,200.978,510.949}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={222.945,6,457.9}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={198.987,6,457.9}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={187.086,6,457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={170.307,6,458.8}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={146.175,6,458.8}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={123.515,6,457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={100.535,6,457.9}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={80.805,6,457.9}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={78.594,183.88,471.703}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,-1}},
+		{kind="point", pos={50.895,6,457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={46.974,127.131,456.2}, color={255,120,220}, range=40, brightness=1.2, dir={-0,-0,-1}},
+		{kind="point", pos={21.573,6,458.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-1.958,6,458.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-16.268,6,457.9}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-44.23,6,457.9}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-61.874,6,457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-89.041,6,457.9}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-113.061,6,457.9}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-122.382,6,458.7}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-139.998,6,458.7}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-162.568,6,458.7}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-174.482,6,456.35}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-194.351,6,456.35}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={-184.699,76.209,447.85}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,-1}},
+		{kind="point", pos={-206.935,6,457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={-206.935,58.759,449.2}, color={255,140,230}, range=60, brightness=1.6, dir={-0,-0,-1}},
+		{kind="point", pos={-222.486,6,458.5}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={-222.486,90.615,450.5}, color={255,140,230}, range=60, brightness=1.6, dir={-0,-0,-1}},
+		{kind="point", pos={-309.546,6,457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-330.727,6,457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={-319.525,46.35,446.7}, color={255,140,230}, range=60, brightness=1.6, dir={-0,-0,-1}},
+		{kind="point", pos={-320.866,187.289,532.068}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={-341.264,6,456.35}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-368.024,6,458.4}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={-373.803,173.806,457.4}, color={255,120,220}, range=40, brightness=1.2, dir={-0,-0,-1}},
+		{kind="point", pos={-392.658,6,457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-401.451,205.583,509.965}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={-424.157,6,457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-437.457,6,457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-460.135,6,457.2}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={-448.872,67.102,457.2}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,-1}},
+		{kind="point", pos={-543.4,6,375.12}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-543,6,360.968}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-542.2,6,335.547}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={-542.2,44.561,326.368}, color={120,200,255}, range=40, brightness=1.2, dir={1,-0,0}},
+		{kind="point", pos={-543.4,6,305.159}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-593.989,295.732,303.051}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={-542.9,6,288.668}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-542.9,6,264.889}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-542.2,6,240.644}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-542.2,6,215.922}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-542.2,6,191.79}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={-541.2,132.005,203.367}, color={120,200,255}, range=40, brightness=1.2, dir={1,-0,0}},
+		{kind="point", pos={-611.99,282.431,203.944}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={-542.088,6,106.495}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-542.088,6,84.933}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-599.016,207.257,91.65}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={-543.9,6,62.408}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-543.9,6,35.578}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-541.792,6,17.729}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-542.2,6,-5.89}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-596.103,231.139,-9.594}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={-541.35,6,-30.258}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-541.35,6,-53.771}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-543.4,6,-65.894}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={-535.4,101.143,-65.894}, color={255,140,230}, range=60, brightness=1.6, dir={1,-0,0}},
+		{kind="point", pos={-543.4,6,-79.633}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-543.4,6,-98.392}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-541.918,6,-127.37}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-541.918,6,-148.036}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-541.918,6,-169.017}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-541.918,6,-190.905}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={-533.918,92,-159.275}, color={255,140,230}, range=60, brightness=1.6, dir={1,-0,0}},
+		{kind="surface", pos={-530.918,302.15,-159.275}, color={255,120,220}, range=40, brightness=1.2, dir={1,-0,0}},
+		{kind="point", pos={-573.745,516.937,-159.275}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={-523.918,60,-159.275}, color={255,60,200}, range=60, brightness=2},
+		{kind="point", pos={-543.8,6,-204.011}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-543.8,6,-227.747}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={-535.3,79.802,-220.539}, color={120,200,255}, range=40, brightness=1.2, dir={1,-0,0}},
+		{kind="point", pos={-541.35,6,-254.41}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-541.35,6,-273.652}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-541.35,6,-289.167}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-585.284,208.934,-272.111}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={-542.2,6,-296.242}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={-530.2,49.283,-303.325}, color={255,140,230}, range=60, brightness=1.6, dir={1,-0,0}},
+		{kind="point", pos={-543.9,6,-319.929}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={-535.9,129.452,-319.929}, color={255,140,230}, range=60, brightness=1.6, dir={1,-0,0}},
+		{kind="point", pos={-542.9,6,-332.954}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-542.9,6,-354.148}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-542.2,6,-375.589}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={590.446,6,-458.878}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={614.048,6,-458.878}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={633.9,6,-458.878}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={543.878,6,-548.48}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={543.878,6,-525.861}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={543.878,6,-503.636}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={590.984,533,-505.984}, color={255,30,40}, range=30, brightness=2},
+		{kind="point", pos={590.984,80,-444.878}, color={255,60,200}, range=60, brightness=2},
+		{kind="point", pos={529.878,80,-505.984}, color={255,60,200}, range=60, brightness=2},
+		{kind="point", pos={-558.998,6,-461.374}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-543.5,6,-485.39}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-543.5,6,-512.048}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-543.5,6,-531.721}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-632.728,6,-457.7}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-605.395,6,-457.7}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-583.949,6,-457.7}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={-535.5,55.075,-515.85}, color={255,140,230}, range=60, brightness=1.6, dir={1,-0,0}},
+		{kind="surface", pos={-601.25,54.875,-449.7}, color={255,140,230}, range=60, brightness=1.6, dir={-0,-0,1}},
+		{kind="surface", pos={-567.846,218,-482.334}, color={120,200,255}, range=40, brightness=1.2, dir={0.707,-0,0.707}},
+		{kind="point", pos={-615.625,333.5,-530.425}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={573.887,6,461.084}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={560.61,6,474.361}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={542.4,6,500.614}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={542.4,6,524.906}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={542.4,6,547.92}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={632.933,6,457.4}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={608.439,6,457.4}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={585.059,6,457.4}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="surface", pos={554.329,86.083,469.329}, color={255,140,230}, range=60, brightness=1.6, dir={-0.707,-0,-0.707}},
+		{kind="surface", pos={550.592,279.01,465.592}, color={120,200,255}, range=40, brightness=1.2, dir={-0.707,-0,-0.707}},
+		{kind="point", pos={610.725,395,525.62}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={-558.227,6,529.582}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-551.845,6,522.378}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-547.373,6,513.856}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-545.07,6,504.512}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-545.07,6,494.888}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-547.373,6,485.544}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-551.845,6,477.022}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-558.227,6,469.818}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-566.148,6,464.351}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-575.146,6,460.939}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-584.7,6,459.779}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-594.254,6,460.939}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-603.252,6,464.351}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-611.173,6,469.818}, color={255,225,190}, range=18, brightness=0.8},
+		{kind="point", pos={-612.368,521,527.26}, color={255,30,40}, range=30, brightness=2},
+		{kind="surface", pos={-594.96,224,512.24}, color={120,200,255}, range=40, brightness=1.2, dir={0.707,-0,-0.707}},
+		{kind="point", pos={-531.5,50,446.5}, color={255,70,200}, range=60, brightness=2},
+		{kind="surface", pos={549.4,65.8,-132}, color={255,120,220}, range=40, brightness=1.2, dir={-1,-0,0}},
+		{kind="surface", pos={150,65.8,-464.4}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="surface", pos={-266.75,65.8,464.5}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,-1}},
+		{kind="surface", pos={-548.2,65.8,148}, color={120,200,255}, range=40, brightness=1.2, dir={1,-0,0}},
+		{kind="surface", pos={654.835,240.169,-553.299}, color={120,200,255}, range=40, brightness=1.2, dir={-1,-0,0}},
+		{kind="surface", pos={654.953,174.307,-501.302}, color={120,200,255}, range=40, brightness=1.2, dir={-1,-0,0}},
+		{kind="point", pos={700.397,222.971,-501.302}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={651.484,182.927,-411.226}, color={120,200,255}, range=40, brightness=1.2, dir={-1,-0,0}},
+		{kind="point", pos={695.67,262.896,-411.226}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={713.67,352.693,-284.629}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={647.644,191.25,-240.897}, color={120,200,255}, range=40, brightness=1.2, dir={-1,-0,0}},
+		{kind="point", pos={706.5,243.315,-197.832}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={659.796,331.41,-132.508}, color={120,200,255}, range=40, brightness=1.2, dir={-1,-0,0}},
+		{kind="point", pos={702.334,351.289,-132.508}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={696.676,339.687,-88.339}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={645.667,258.779,25.759}, color={120,200,255}, range=40, brightness=1.2, dir={-1,-0,0}},
+		{kind="point", pos={697.201,399.761,25.759}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={645.943,374.809,116.44}, color={120,200,255}, range=40, brightness=1.2, dir={-1,-0,0}},
+		{kind="surface", pos={651.443,427.358,116.44}, color={120,200,255}, range=40, brightness=1.2, dir={-1,-0,0}},
+		{kind="surface", pos={646.569,327.773,170.036}, color={120,200,255}, range=40, brightness=1.2, dir={-1,-0,0}},
+		{kind="surface", pos={652.069,430.827,170.036}, color={120,200,255}, range=40, brightness=1.2, dir={-1,-0,0}},
+		{kind="point", pos={703.523,383.809,232.635}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={649.935,372.987,288.744}, color={120,200,255}, range=40, brightness=1.2, dir={-1,-0,0}},
+		{kind="surface", pos={652.985,191.25,391.767}, color={120,200,255}, range=40, brightness=1.2, dir={-1,-0,0}},
+		{kind="point", pos={693.152,193.707,514.424}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={-793.093,340.471,-624.316}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={-654.261,226.455,-623.018}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={-596.599,201.45,-566.607}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="surface", pos={-596.599,256.549,-572.107}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="surface", pos={-482.271,265.974,-567.866}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="surface", pos={-482.271,326.962,-573.366}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="point", pos={-482.271,379.17,-614.279}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={-415.358,231.605,-567.574}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="surface", pos={-345.822,344.945,-567.569}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="surface", pos={-189.061,282.83,-572.68}, color={255,120,220}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="surface", pos={-132.014,212.676,-566.634}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="surface", pos={-132.014,254.183,-572.134}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="surface", pos={-26.998,340.147,-565.201}, color={120,200,255}, range=40, brightness=1.2, dir={0,-0,1}},
+		{kind="surface", pos={116.284,198.327,-565.448}, color={255,120,220}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="point", pos={148.434,345.004,-625.713}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={200.142,175.769,-568.609}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="point", pos={200.142,211.701,-610.688}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={258.783,278.568,-569.455}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="surface", pos={258.783,328.129,-574.955}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="surface", pos={320.231,270.711,-567.105}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="surface", pos={360.951,208.194,-568.516}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="point", pos={360.951,257.019,-622.993}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={397.732,212.106,-562.265}, color={255,120,220}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="surface", pos={397.732,256.891,-567.765}, color={255,120,220}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="point", pos={397.732,309.079,-625.322}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={438.545,209.785,-612.679}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={488.903,280.279,-616.464}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={798.979,196.534,-571.071}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,1}},
+		{kind="point", pos={647.222,193.895,625.719}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={581.182,271.008,572.126}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,-1}},
+		{kind="point", pos={581.182,359.789,612.474}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={537.638,467.164,622.973}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={481.66,317.802,564.4}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,-1}},
+		{kind="point", pos={424.12,482.574,612.224}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={364.061,461.817,627.6}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={316.527,201.45,556.927}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,-1}},
+		{kind="point", pos={316.527,305.999,611.618}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={278.412,191.25,561.404}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,-1}},
+		{kind="surface", pos={227.122,278.53,571.814}, color={255,120,220}, range=40, brightness=1.2, dir={-0,-0,-1}},
+		{kind="point", pos={227.122,375.003,624.67}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={36.143,310.758,564.505}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,-1}},
+		{kind="surface", pos={36.143,356.722,570.005}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,-1}},
+		{kind="point", pos={36.143,395.893,621.759}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={-22.121,316.652,569.108}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,-1}},
+		{kind="point", pos={-257.593,445.167,611.737}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={-308.829,285.34,571.594}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,-1}},
+		{kind="point", pos={-372.631,440.212,612.109}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={-450.56,392.758,619.151}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={-496.902,186.412,564.373}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,-1}},
+		{kind="point", pos={-553.595,308.351,620.976}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={-593.176,186.512,567.643}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,-1}},
+		{kind="surface", pos={-629.39,273.605,570.325}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,-1}},
+		{kind="surface", pos={-765.276,167.813,571.689}, color={120,200,255}, range=40, brightness=1.2, dir={-0,-0,-1}},
+		{kind="point", pos={-765.276,188.566,610.596}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={-647.839,334.365,539.302}, color={120,200,255}, range=40, brightness=1.2, dir={1,-0,0}},
+		{kind="point", pos={-698.532,372.772,539.302}, color={255,30,40}, range=20, brightness=1},
+		{kind="point", pos={-695.458,448.445,483.576}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={-650.042,214.153,405.51}, color={120,200,255}, range=40, brightness=1.2, dir={1,-0,0}},
+		{kind="surface", pos={-656.476,362.772,344.654}, color={120,200,255}, range=40, brightness=1.2, dir={1,-0,0}},
+		{kind="point", pos={-706.715,405.281,344.654}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={-657.287,191.25,263.606}, color={120,200,255}, range=40, brightness=1.2, dir={1,-0,0}},
+		{kind="surface", pos={-654.286,239.03,163.851}, color={120,200,255}, range=40, brightness=1.2, dir={1,-0,0}},
+		{kind="point", pos={-707.222,273.282,163.851}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={-651.265,352.742,98.928}, color={120,200,255}, range=40, brightness=1.2, dir={1,-0,0}},
+		{kind="surface", pos={-656.765,429.581,98.928}, color={120,200,255}, range=40, brightness=1.2, dir={1,-0,0}},
+		{kind="surface", pos={-655.232,361.293,37.688}, color={120,200,255}, range=40, brightness=1.2, dir={1,-0,0}},
+		{kind="point", pos={-695.807,465.025,37.688}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={-647.905,232.314,-38.881}, color={120,200,255}, range=40, brightness=1.2, dir={1,-0,0}},
+		{kind="surface", pos={-650.744,345.716,-185.255}, color={120,200,255}, range=40, brightness=1.2, dir={1,-0,0}},
+		{kind="point", pos={-704.73,224.299,-322.282}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={-651.431,332.84,-372.048}, color={120,200,255}, range=40, brightness=1.2, dir={1,-0,0}},
+		{kind="surface", pos={-645.713,221.85,-416.809}, color={255,120,220}, range=40, brightness=1.2, dir={1,-0,0}},
+		{kind="surface", pos={-653.959,304.232,-457.785}, color={120,200,255}, range=40, brightness=1.2, dir={1,-0,0}},
+		{kind="point", pos={-709.264,246.502,-500.516}, color={255,30,40}, range=20, brightness=1},
+		{kind="surface", pos={-659.206,185.744,-543.51}, color={120,200,255}, range=40, brightness=1.2, dir={1,-0,0}},
+		{kind="point", pos={1324.07,1230.64,-394.041}, color={255,30,40}, range=60, brightness=3},
+		{kind="point", pos={1325.84,1715.96,-1022.9}, color={255,30,40}, range=60, brightness=3},
+		{kind="point", pos={503.902,1739.11,-1399.68}, color={255,30,40}, range=60, brightness=3},
+		{kind="point", pos={-455.145,1074.81,-1410.89}, color={255,30,40}, range=60, brightness=3},
+		{kind="point", pos={-1302.21,1397.54,-1149.21}, color={255,30,40}, range=60, brightness=3},
+		{kind="point", pos={-1355.44,1787.09,-559.815}, color={255,30,40}, range=60, brightness=3},
+		{kind="point", pos={-1314.92,1355.97,117.458}, color={255,30,40}, range=60, brightness=3},
+		{kind="point", pos={-1192.47,1193.52,1334.39}, color={255,30,40}, range=60, brightness=3},
+		{kind="point", pos={-486.59,1639.42,1408.11}, color={255,30,40}, range=60, brightness=3},
+		{kind="point", pos={423.712,1006.61,1396.1}, color={255,30,40}, range=60, brightness=3},
+		{kind="point", pos={1009.02,1019.76,1345.53}, color={255,30,40}, range=60, brightness=3},
+		{kind="point", pos={1326.87,1048.09,627.059}, color={255,30,40}, range=60, brightness=3},
+		{kind="spot", pos={-471,55.6,-386}, color={215,228,255}, range=60, brightness=3, dir={0.77,-0.091,0.631}, angle=70},
+		{kind="spot", pos={-471,55.6,386}, color={215,228,255}, range=60, brightness=3, dir={0.77,-0.091,-0.631}, angle=70},
+		{kind="spot", pos={-282.6,55.6,-386}, color={215,228,255}, range=60, brightness=3, dir={0.587,-0.115,0.801}, angle=70},
+		{kind="spot", pos={-282.6,55.6,386}, color={215,228,255}, range=60, brightness=3, dir={0.587,-0.115,-0.801}, angle=70},
+		{kind="spot", pos={-94.2,55.6,-386}, color={215,228,255}, range=60, brightness=3, dir={0.235,-0.139,0.962}, angle=70},
+		{kind="spot", pos={-94.2,55.6,386}, color={215,228,255}, range=60, brightness=3, dir={0.235,-0.139,-0.962}, angle=70},
+		{kind="spot", pos={94.2,55.6,-386}, color={215,228,255}, range=60, brightness=3, dir={-0.235,-0.139,0.962}, angle=70},
+		{kind="spot", pos={94.2,55.6,386}, color={215,228,255}, range=60, brightness=3, dir={-0.235,-0.139,-0.962}, angle=70},
+		{kind="spot", pos={282.6,55.6,-386}, color={215,228,255}, range=60, brightness=3, dir={-0.587,-0.115,0.801}, angle=70},
+		{kind="spot", pos={282.6,55.6,386}, color={215,228,255}, range=60, brightness=3, dir={-0.587,-0.115,-0.801}, angle=70},
+		{kind="spot", pos={471,55.6,-386}, color={215,228,255}, range=60, brightness=3, dir={-0.77,-0.091,0.631}, angle=70},
+		{kind="spot", pos={471,55.6,386}, color={215,228,255}, range=60, brightness=3, dir={-0.77,-0.091,-0.631}, angle=70},
+		{kind="spot", pos={471,55.6,193}, color={215,228,255}, range=60, brightness=3, dir={-0.92,-0.109,-0.377}, angle=70},
+		{kind="spot", pos={-471,55.6,193}, color={215,228,255}, range=60, brightness=3, dir={0.92,-0.109,-0.377}, angle=70},
+		{kind="spot", pos={471,55.6,-0}, color={215,228,255}, range=60, brightness=3, dir={-0.993,-0.117,-0}, angle=70},
+		{kind="spot", pos={-471,55.6,-0}, color={215,228,255}, range=60, brightness=3, dir={0.993,-0.117,-0}, angle=70},
+		{kind="spot", pos={471,55.6,-193}, color={215,228,255}, range=60, brightness=3, dir={-0.92,-0.109,0.377}, angle=70},
+		{kind="spot", pos={-471,55.6,-193}, color={215,228,255}, range=60, brightness=3, dir={0.92,-0.109,0.377}, angle=70},
+		{kind="spot", pos={-219,37.6,53.6}, color={215,228,255}, range=60, brightness=3, dir={0.873,-0.15,0.464}, angle=70},
+		{kind="spot", pos={219,37.6,53.6}, color={215,228,255}, range=60, brightness=3, dir={-0.873,-0.15,0.464}, angle=70},
+		{kind="spot", pos={-219,37.6,296.4}, color={215,228,255}, range=60, brightness=3, dir={0.857,-0.147,-0.494}, angle=70},
+		{kind="spot", pos={219,37.6,296.4}, color={215,228,255}, range=60, brightness=3, dir={-0.857,-0.147,-0.494}, angle=70},
+	},
+}
+]]></ProtectedString>
+			</Properties>
+		</Item>
+		<Item class="Script" referent="RBX4">
+			<Properties>
+				<string name="Name">RunSetup</string>
+				<bool name="Disabled">false</bool>
+				<token name="RunContext">1</token>
+				<ProtectedString name="Source"><![CDATA[-- Builds the HEX! cyberpunk look when the game starts, unless it was already baked into the
+-- place from the command bar (require(workspace.CyberpunkCityV2.CyberpunkSetup).run()).
+if workspace:FindFirstChild("HEX_CityFX") then
+	return
+end
+require(script.Parent.CyberpunkSetup).run()
+]]></ProtectedString>
+			</Properties>
+		</Item>
+		<Item class="Script" referent="RBX5">
+			<Properties>
+				<string name="Name">CyberpunkAnimator</string>
+				<bool name="Disabled">false</bool>
+				<token name="RunContext">2</token>
+				<ProtectedString name="Source"><![CDATA[-- HEX! Cyberpunk City v2 - client-side screen / neon animation (RunContext = Client).
+-- Works on the SurfaceGui overlays created by CyberpunkSetup (tag "HEX_Screen"):
+--   * rolling scan line + subtle brightness breathing on every screen
+--   * billboards of kinds listed in Config.RotateKinds cycle between ads of the same aspect
+--   * NEON_RED beacons blink, a few neon strips buzz like faulty tubes
+-- Screens farther than AnimateDistance from the camera are left static (cheap).
+
+local CollectionService = game:GetService("CollectionService")
+local RunService = game:GetService("RunService")
+
+local root = script.Parent
+local Config = require(root:WaitForChild("CyberpunkConfig"))
+
+local AnimateDistance = 1800
+
+local fx = workspace:WaitForChild("HEX_CityFX", 60)
+if not fx then
+	return
+end
+local pool = fx:WaitForChild("Screens"):WaitForChild("AdPool", 30)
+
+local byAspect = {}
+if pool then
+	for _, sv in ipairs(pool:GetChildren()) do
+		local a = sv:GetAttribute("Aspect")
+		if a then
+			byAspect[a] = byAspect[a] or {}
+			table.insert(byAspect[a], sv)
+		end
+	end
+end
+
+local screens = {}
+local function add(anchor)
+	local gui = anchor:FindFirstChildOfClass("SurfaceGui")
+	if not gui then
+		return
+	end
+	table.insert(screens, {
+		anchor = anchor,
+		gui = gui,
+		ad = gui:FindFirstChild("Ad"),
+		scan = gui:FindFirstChild("Scan"),
+		phase = math.random() * 10,
+		speed = 0.12 + math.random() * 0.25,
+		base = gui.Brightness,
+	})
+end
+for _, a in ipairs(CollectionService:GetTagged("HEX_Screen")) do
+	add(a)
+end
+CollectionService:GetInstanceAddedSignal("HEX_Screen"):Connect(add)
+
+-- rotating billboards: group panels by screen so curved screens change together
+local groups = {}
+for _, s in ipairs(screens) do
+	if s.anchor:GetAttribute("Rotate") and s.ad then
+		local name = s.anchor:GetAttribute("Screen")
+		groups[name] = groups[name] or {}
+		table.insert(groups[name], s)
+	end
+end
+task.spawn(function()
+	while true do
+		for _, panels in pairs(groups) do
+			local first = panels[1]
+			local now = os.clock()
+			first.nextSwap = first.nextSwap or now + math.random(Config.RotateSeconds[1], Config.RotateSeconds[2])
+			if now >= first.nextSwap then
+				first.nextSwap = now + math.random(Config.RotateSeconds[1], Config.RotateSeconds[2])
+				local cur = first.ad.Image
+				local w, h = first.ad.ImageRectSize.X, first.ad.ImageRectSize.Y
+				local aspect = math.floor((w * #panels) / h * 100 + 0.5) / 100
+				local list = byAspect[aspect]
+				if list and #list > 1 then
+					local pick = list[math.random(1, #list)]
+					if pick.Value ~= cur then
+						for _, s in ipairs(panels) do
+							s.ad.Image = pick.Value
+							s.ad.ImageRectSize = Vector2.new(pick:GetAttribute("W") / #panels, pick:GetAttribute("H"))
+							s.ad.ImageRectOffset = Vector2.new(pick:GetAttribute("W") * (s.anchor:GetAttribute("Panel") - 1) / #panels, 0)
+							s.gui.Brightness = s.base * 2.2 -- flash on change
+						end
+					end
+				end
+			end
+		end
+		task.wait(0.5)
+	end
+end)
+
+-- beacons + faulty neon
+local beacons, buzz = {}, {}
+for _, p in ipairs(CollectionService:GetTagged("HEX_Neon")) do
+	if string.find(p.Name, "NEON_RED", 1, true) then
+		table.insert(beacons, p)
+	elseif math.random() < 0.04 then
+		table.insert(buzz, p)
+	end
+end
+
+local cam = workspace.CurrentCamera
+RunService.RenderStepped:Connect(function()
+	local t = os.clock()
+	local cpos = cam and cam.CFrame.Position or Vector3.zero
+	for _, s in ipairs(screens) do
+		local a = s.anchor
+		if (a.Position - cpos).Magnitude < AnimateDistance then
+			if s.scan then
+				local y = ((t * s.speed + s.phase) % 1.2) - 0.1
+				s.scan.Position = UDim2.fromScale(0, y)
+			end
+			local target = s.base * (1 + 0.06 * math.sin(t * 1.7 + s.phase))
+			s.gui.Brightness = s.gui.Brightness + (target - s.gui.Brightness) * 0.08
+		end
+	end
+	local on = (t % 1.6) < 0.8
+	for _, p in ipairs(beacons) do
+		p.Transparency = on and 0 or 0.85
+	end
+	for i, p in ipairs(buzz) do
+		local f = math.noise(t * 6, i) > 0.35
+		p.Transparency = f and 0.7 or 0
+	end
+end)
+]]></ProtectedString>
+			</Properties>
+		</Item>
+	</Item>
+</roblox>
