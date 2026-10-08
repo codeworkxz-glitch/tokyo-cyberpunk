@@ -36,8 +36,8 @@ FLATS = {
     "NEON_CYN": ((0, 230, 255), 7.0), "NEON_MAG": ((255, 25, 175), 7.0), "NEON_VIO": ((150, 45, 255), 7.5),
     "NEON_BLU": ((30, 95, 255), 8.0), "NEON_RED": ((255, 32, 45), 7.0), "NEON_AMB": ((255, 150, 25), 6.0),
     "NEON_WHT": ((215, 228, 255), 4.0),
-    "WIN_WRM": ((255, 190, 125), 1.1), "WIN_COL": ((140, 195, 255), 1.1), "WIN_PNK": ((255, 120, 200), 1.3),
-    "WIN_VIO": ((170, 130, 255), 1.3), "SHOP_LIT": ((255, 232, 205), 1.3),
+    "WIN_WRM": ((255, 180, 110), 0.65), "WIN_COL": ((150, 195, 255), 0.6), "WIN_PNK": ((255, 120, 200), 0.8),
+    "WIN_VIO": ((170, 130, 255), 0.8), "SHOP_LIT": ((255, 232, 205), 1.3),
 }
 # Sign atlases from the original map (re-used for storefront / blade signage)
 SIGNS = {"SGH": ("CP_SignsH", "signs_h"), "SGV": ("CP_SignsV", "signs_v")}

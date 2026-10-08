@@ -12,9 +12,9 @@ untouched and verified identical to the original.
 
 | | |
 |---|---|
-| `export/HEX_Cyberpunk_City_A.fbx` | park (once) + foreground buildings, corner landmarks, storefronts, billboard structures — **12.8 MB** |
-| `export/HEX_Cyberpunk_City_B.fbx` | midground towers, skyline, 12 megatowers — **13.0 MB** |
-| `export/textures/` | all PNG maps (copy them next to the FBX files when importing; the FBX references bare file names): 10 PBR sets (Color / Normal / Roughness / Metalness, 1024²), 45 original ad artworks, the map's 2 sign atlases, Neon swatches |
+| `export/HEX_Cyberpunk_City_A.fbx` | park (once) + foreground buildings, corner landmarks, storefronts, billboard structures — **18.0 MB** |
+| `export/HEX_Cyberpunk_City_B.fbx` | midground towers, skyline, 12 megatowers — **14.1 MB** |
+| `export/textures/` | all PNG maps (copy them next to the FBX files when importing; the FBX references bare file names): 10 PBR sets (Color / Normal / Roughness / Metalness, 1024²), 38 original campaign-style ad artworks, the map's 2 sign atlases, Neon swatches |
 | `export/ROBLOX_SETUP_GUIDE.md` | import steps + texture / material assignment guide for Roblox Studio |
 | `export/texture_assignment.csv`, `export/screens.csv` | every MeshPart → material → PNG maps → Roblox setting; every screen → ad texture |
 | `export/roblox/CyberpunkCityV2.rbxmx` | setup + animation scripts and `CityData` (screen panels, lights, alignment) |
@@ -41,15 +41,19 @@ on top of each other without repositioning; `HEX_ALIGN_A/B` marker cubes let the
   the map's own sign atlases, LED-lit canopies, noren curtains, lanterns, A-frame signs, vending machines, vertical blade
   signs, floor-directory signs, service alleys with duct risers, fire escapes and AC units, ad panels and glass
   skybridges spanning the four side streets.
-* **Advertising** — 492 screens, each a separate mesh: giant recessed facade screens, skyscraper-scale truss-mounted
-  screens above the neighbours, layered screens, curved corner wraps, double-sided holo blades, cantilevered and
-  rooftop billboards, stacked small screens, arcade screen walls, storefront tickers. 45 original artworks in 6 formats.
+* **Advertising** — 346 screens, each a separate mesh: giant recessed facade screens, skyscraper-scale truss-mounted
+  screens above the neighbours, layered screens, curved corner wraps, cantilevered and rooftop billboards, arcade screen
+  walls, storefront tickers. 38 original campaign-style artworks in 6 formats (brand lockups, rendered hero objects,
+  no clip-art), moderation-safe: no QR codes, barcodes, prices, links or gambling.
 * **Midground (111 lots) and skyline (426 towers + 12 megatowers), file B** — setbacks, cantilevered tops, crowns,
   big facade screens above the foreground roofline; skyline in 10 silhouette families (stepped, octagonal spire,
   twisting, finned cylinder, twin towers with bridges, cantilevered, hexagonal, clusters, slabs) merged per sector;
   megatowers 900–1,700 studs with sky lobbies, neon ribs, giant screens and holo rings.
-* **Lighting hierarchy** — strongest neon on landmarks, two accents on about a quarter of buildings, one on a third,
-  the rest dark; lit windows in warm / cool / pink / violet with blinds and partial lighting.
+* **Built windows (v2.1)** — every window is real geometry: reveals, recessed glass, mullions, transoms and sills;
+  curtain walls have projecting mullion grids and floor transoms; lit windows show a room set back behind the frame
+  (with desks, shelving or blinds) and follow tenancy — whole office floors, individual flats, dark floors.
+* **Lighting hierarchy** — neon on signs, shopfronts, canopies, billboards and the landmark crowns / ribs only;
+  no outlined building edges.
 
 ## Previews (Blender Cycles approximation of the Roblox night setup)
 

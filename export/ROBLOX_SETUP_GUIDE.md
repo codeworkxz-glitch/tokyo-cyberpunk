@@ -6,9 +6,9 @@ Everything here is generated from the actual export (`blender/cp2_guide.py`). Pe
 
 | File | Size | Contents |
 |---|---|---|
-| `HEX_Cyberpunk_City_A.fbx` | 12.79 MB | the original basketball park (unchanged, included only here), all foreground buildings around the plaza, the 4 corner landmarks, side-street ad gates / skybridges, their screens and props — 3411 meshes, 317,434 triangles |
-| `HEX_Cyberpunk_City_B.fbx` | 12.96 MB | midground towers, skyline towers, 12 megatowers, their screens and props — 2788 meshes, 248,296 triangles |
-| `textures/` | 17.0 MB | every PNG the materials use (listed below) |
+| `HEX_Cyberpunk_City_A.fbx` | 18.01 MB | the original basketball park (unchanged, included only here), all foreground buildings around the plaza, the 4 corner landmarks, side-street ad gates / skybridges, their screens and props — 3657 meshes, 509,776 triangles |
+| `HEX_Cyberpunk_City_B.fbx` | 14.05 MB | midground towers, skyline towers, 12 megatowers, their screens and props — 2860 meshes, 297,308 triangles |
+| `textures/` | 34.1 MB | every PNG the materials use (listed below) |
 | `roblox/CyberpunkCityV2.rbxmx` | | setup / animation scripts + `CityData` (screen panels, lights, alignment) |
 | `../output/HEX_Cyberpunk_City.blend` | | editable Blender project (collections `A_*` = file A, `B_*` = file B) |
 | `../output/HEX_City_00_original_backup.blend` | | backup of the untouched original scene |
@@ -42,16 +42,16 @@ All maps are 1024 × 1024 PNG (Roblox stores uploaded images at most 1024 px, so
 
 | Key (name suffix) | Material in FBX | SurfaceAppearance maps (in `textures/`) | Tile (studs) | Meshes A / B | Triangles | Used for |
 |---|---|---|---|---|---|---|
-| `__GLS` | `CP_GlassCurtain` | Color: `T_GlassCurtain_Color.png` (99 KB)<br>Normal: `T_GlassCurtain_Normal.png` (6 KB)<br>Roughness: `T_GlassCurtain_Roughness.png` (94 KB)<br>Metalness: `T_GlassCurtain_Metalness.png` (2 KB) | 32 x 48 | 99 / 68 | 4,210 | curtain-wall glazing, mullion grid matches 5.33-stud bays / 12-stud floors |
-| `__RIB` | `CP_GlassRibbon` | Color: `T_GlassRibbon_Color.png` (112 KB)<br>Normal: `T_GlassRibbon_Normal.png` (5 KB)<br>Roughness: `T_GlassRibbon_Roughness.png` (47 KB)<br>Metalness: `T_GlassRibbon_Metalness.png` (2 KB) | 32 x 24 | 47 / 23 | 328 | ribbon windows with concrete spandrels |
-| `__PNL` | `CP_PanelMetal` | Color: `T_PanelMetal_Color.png` (169 KB)<br>Normal: `T_PanelMetal_Normal.png` (63 KB)<br>Roughness: `T_PanelMetal_Roughness.png` (135 KB)<br>Metalness: `T_PanelMetal_Metalness.png` (2 KB) | 24 x 24 | 172 / 152 | 20,692 | gunmetal cladding, fascias, screen backs, recess linings |
-| `__CON` | `CP_ConcreteDark` | Color: `T_ConcreteDark_Color.png` (399 KB)<br>Normal: `T_ConcreteDark_Normal.png` (496 KB)<br>Roughness: `T_ConcreteDark_Roughness.png` (178 KB)<br>Metalness: `T_ConcreteDark_Metalness.png` (1 KB) | 32 x 32 | 112 / 112 | 22,652 | board-formed concrete: party walls, pilasters, slabs, parapets |
-| `__TEC` | `CP_TechPanel` | Color: `T_TechPanel_Color.png` (236 KB)<br>Normal: `T_TechPanel_Normal.png` (74 KB)<br>Roughness: `T_TechPanel_Roughness.png` (165 KB)<br>Metalness: `T_TechPanel_Metalness.png` (5 KB) | 16 x 16 | 64 / 85 | 5,776 | sci-fi panelling, crown blocks, balustrades |
-| `__MEC` | `CP_Mechanical` | Color: `T_Mechanical_Color.png` (324 KB)<br>Normal: `T_Mechanical_Normal.png` (17 KB)<br>Roughness: `T_Mechanical_Roughness.png` (169 KB)<br>Metalness: `T_Mechanical_Metalness.png` (13 KB) | 8 x 8 | 1212 / 674 | 114,802 | HVAC, ducts, vents, cooling towers, generators, AC units |
+| `__GLS` | `CP_GlassCurtain` | Color: `T_GlassCurtain_Color.png` (99 KB)<br>Normal: `T_GlassCurtain_Normal.png` (6 KB)<br>Roughness: `T_GlassCurtain_Roughness.png` (94 KB)<br>Metalness: `T_GlassCurtain_Metalness.png` (2 KB) | 32 x 48 | 113 / 146 | 27,650 | curtain-wall glazing, mullion grid matches 5.33-stud bays / 12-stud floors |
+| `__RIB` | `CP_GlassRibbon` | Color: `T_GlassRibbon_Color.png` (112 KB)<br>Normal: `T_GlassRibbon_Normal.png` (5 KB)<br>Roughness: `T_GlassRibbon_Roughness.png` (47 KB)<br>Metalness: `T_GlassRibbon_Metalness.png` (2 KB) | 32 x 24 | 0 / 0 | 0 | ribbon windows with concrete spandrels |
+| `__PNL` | `CP_PanelMetal` | Color: `T_PanelMetal_Color.png` (169 KB)<br>Normal: `T_PanelMetal_Normal.png` (63 KB)<br>Roughness: `T_PanelMetal_Roughness.png` (135 KB)<br>Metalness: `T_PanelMetal_Metalness.png` (2 KB) | 24 x 24 | 169 / 170 | 34,930 | gunmetal cladding, fascias, screen backs, recess linings |
+| `__CON` | `CP_ConcreteDark` | Color: `T_ConcreteDark_Color.png` (399 KB)<br>Normal: `T_ConcreteDark_Normal.png` (496 KB)<br>Roughness: `T_ConcreteDark_Roughness.png` (178 KB)<br>Metalness: `T_ConcreteDark_Metalness.png` (1 KB) | 32 x 32 | 112 / 112 | 60,236 | board-formed concrete: party walls, pilasters, slabs, parapets |
+| `__TEC` | `CP_TechPanel` | Color: `T_TechPanel_Color.png` (236 KB)<br>Normal: `T_TechPanel_Normal.png` (74 KB)<br>Roughness: `T_TechPanel_Roughness.png` (165 KB)<br>Metalness: `T_TechPanel_Metalness.png` (5 KB) | 16 x 16 | 107 / 75 | 94,090 | sci-fi panelling, crown blocks, balustrades |
+| `__MEC` | `CP_Mechanical` | Color: `T_Mechanical_Color.png` (324 KB)<br>Normal: `T_Mechanical_Normal.png` (17 KB)<br>Roughness: `T_Mechanical_Roughness.png` (169 KB)<br>Metalness: `T_Mechanical_Metalness.png` (13 KB) | 8 x 8 | 1236 / 669 | 115,476 | HVAC, ducts, vents, cooling towers, generators, AC units |
 | `__ROF` | `CP_RoofDeck` | Color: `T_RoofDeck_Color.png` (319 KB)<br>Normal: `T_RoofDeck_Normal.png` (281 KB)<br>Roughness: `T_RoofDeck_Roughness.png` (6 KB)<br>Metalness: `T_RoofDeck_Metalness.png` (1 KB) | 32 x 32 | 109 / 198 | 8,328 | roof membranes |
-| `__STL` | `CP_Steel` | Color: `T_Steel_Color.png` (245 KB)<br>Normal: `T_Steel_Normal.png` (334 KB)<br>Roughness: `T_Steel_Roughness.png` (161 KB)<br>Metalness: `T_Steel_Metalness.png` (30 KB) | 8 x 8 | 113 / 193 | 156,118 | trusses, exoskeletons, frames, catwalks, pipes, railings, antennas |
-| `__LOU` | `CP_Louver` | Color: `T_Louver_Color.png` (6 KB)<br>Normal: `T_Louver_Normal.png` (5 KB)<br>Roughness: `T_Louver_Roughness.png` (2 KB)<br>Metalness: `T_Louver_Metalness.png` (2 KB) | 8 x 12 | 0 / 22 | 84 | louvred midground facades |
-| `__TWN` | `CP_TowerNight` | Color: `T_TowerNight_Color.png` (10 KB)<br>Normal: `T_TowerNight_Normal.png` (5 KB)<br>Roughness: `T_TowerNight_Roughness.png` (2 KB)<br>Metalness: `T_TowerNight_Metalness.png` (2 KB) | 32 x 48 | 0 / 198 | 17,344 | midground / skyline glazing (pale windows baked into the colour map) |
+| `__STL` | `CP_Steel` | Color: `T_Steel_Color.png` (245 KB)<br>Normal: `T_Steel_Normal.png` (334 KB)<br>Roughness: `T_Steel_Roughness.png` (161 KB)<br>Metalness: `T_Steel_Metalness.png` (30 KB) | 8 x 8 | 113 / 186 | 244,082 | trusses, exoskeletons, frames, catwalks, pipes, railings, antennas |
+| `__LOU` | `CP_Louver` | Color: `T_Louver_Color.png` (6 KB)<br>Normal: `T_Louver_Normal.png` (5 KB)<br>Roughness: `T_Louver_Roughness.png` (2 KB)<br>Metalness: `T_Louver_Metalness.png` (2 KB) | 8 x 12 | 0 / 19 | 74 | louvred midground facades |
+| `__TWN` | `CP_TowerNight` | Color: `T_TowerNight_Color.png` (10 KB)<br>Normal: `T_TowerNight_Normal.png` (5 KB)<br>Roughness: `T_TowerNight_Roughness.png` (2 KB)<br>Metalness: `T_TowerNight_Metalness.png` (2 KB) | 32 x 48 | 107 / 198 | 18,514 | midground / skyline glazing (pale windows baked into the colour map) |
 
 If the 3D Importer created the SurfaceAppearance for you, nothing else is needed. To assign by hand: select the MeshParts whose names end in the key (Explorer filter, e.g. `__GLS`), insert a **SurfaceAppearance**, set ColorMap / NormalMap / RoughnessMap / MetalnessMap to the uploaded ids. SurfaceAppearance maps can only be set in Studio (Properties or command bar), not by game scripts at runtime — that is why `CyberpunkSetup` only fills them when run from the command bar. If you would rather not use textures for some keys, `CyberpunkConfig.Fallback` gives each key a plain Roblox Material + Color (Glass, Metal, Concrete, DiamondPlate, Slate).
 
@@ -61,33 +61,33 @@ Blender emission and bloom do not transfer to Roblox, so every glowing surface i
 
 | Key | Roblox Color (Neon) | Meshes A / B | Used for |
 |---|---|---|---|
-| `__NEON_CYN` | 0, 230, 255 | 72 / 83 | cyan accent strips / outlines |
-| `__NEON_MAG` | 255, 25, 175 | 77 / 65 | magenta accent strips / outlines |
-| `__NEON_VIO` | 150, 45, 255 | 50 / 54 | violet accents |
-| `__NEON_BLU` | 30, 95, 255 | 38 / 46 | electric blue accents |
-| `__NEON_RED` | 255, 32, 45 | 82 / 142 | aircraft beacons, occasional red accents, lanterns |
+| `__NEON_CYN` | 0, 230, 255 | 72 / 53 | cyan accent strips / outlines |
+| `__NEON_MAG` | 255, 25, 175 | 76 / 34 | magenta accent strips / outlines |
+| `__NEON_VIO` | 150, 45, 255 | 50 / 30 | violet accents |
+| `__NEON_BLU` | 30, 95, 255 | 39 / 29 | electric blue accents |
+| `__NEON_RED` | 255, 32, 45 | 87 / 143 | aircraft beacons, occasional red accents, lanterns |
 | `__NEON_AMB` | 255, 150, 25 | 53 / 0 | occasional amber (lanterns, a few signs) |
-| `__NEON_WHT` | 200, 215, 255 | 63 / 34 | LED strips under canopies, billboard flood bars |
-| `__WIN_WRM` | 150, 110, 70 | 78 / 138 | lit windows, warm |
-| `__WIN_COL` | 80, 115, 160 | 69 / 131 | lit windows, cool |
-| `__WIN_PNK` | 160, 70, 125 | 52 / 82 | lit windows, pink |
-| `__WIN_VIO` | 105, 80, 165 | 57 / 97 | lit windows, violet; skybridge glow |
-| `__SHOP_LIT` | 175, 160, 140 | 139 / 0 | storefront glass, vending machine fronts |
+| `__NEON_WHT` | 200, 215, 255 | 98 / 39 | LED strips under canopies, billboard flood bars |
+| `__WIN_WRM` | 150, 110, 70 | 109 / 176 | lit windows, warm |
+| `__WIN_COL` | 80, 115, 160 | 105 / 176 | lit windows, cool |
+| `__WIN_PNK` | 160, 70, 125 | 97 / 136 | lit windows, pink |
+| `__WIN_VIO` | 105, 80, 165 | 96 / 150 | lit windows, violet; skybridge glow |
+| `__SHOP_LIT` | 175, 160, 140 | 135 / 0 | storefront glass, vending machine fronts |
 
-Lighting hierarchy: landmark buildings (4 corner landmarks + 4 mega ad towers) carry full outlines, exoskeleton ribs and the biggest screens; about a quarter of the other buildings get two accents, a third one accent, the rest stay dark so the lit ones stand out.
+Lighting hierarchy: neon sits where it does in real Tokyo — signs, shopfronts, canopies, rooftop billboards — plus illuminated ribs and crowns on the 8 landmark towers. Building edges are not outlined. Lit windows follow tenancy (whole office floors, individual flats, dark floors) and each lit window shows a room set back behind its frame.
 
 ## 6. Signs (texture atlases from the original map)
 
 | Key | Texture | Meshes A / B | Notes |
 |---|---|---|---|
 | `__SGH` | `signs_h.png` (370 KB, 2048²) | 105 / 0 | horizontal shop signs, floor directories, noren curtains; UVs point into the atlas cells |
-| `__SGV` | `signs_v.png` (501 KB, 2048²) | 103 / 0 | vertical blade signs (both faces), A-frame sidewalk signs |
+| `__SGV` | `signs_v.png` (501 KB, 2048²) | 104 / 0 | vertical blade signs (both faces), A-frame sidewalk signs |
 
 These are your original map's sign atlases (2048 px; Roblox will store them at 1024 px, which is enough for sign text at street distance). Apply as MeshPart **TextureID** or SurfaceAppearance ColorMap. They sit next to Neon frames and shop lights, so they read at night without extra setup.
 
 ## 7. Screens (separate meshes, animation-ready)
 
-492 screens, every one a separate MeshPart named `SCR_*` with its own `AD_*` material and 0–1 UVs across the display surface. Kinds: holo 77, stack 75, storefront 64, arcade 59, rooftop 52, skyline 45, mg_facade 34, giant 25, crown 17, mega 12, cantilever 10, suspended 8, layered 4, sky 4, curved 3, ticker 3.
+342 screens, every one a separate MeshPart named `SCR_*` with its own `AD_*` material and 0–1 UVs across the display surface. Kinds: arcade 66, rooftop 65, storefront 62, skyline 45, giant 25, mg_facade 22, crown 20, mega 12, suspended 8, curved 4, layered 4, sky 4, holo 3, ticker 2.
 
 * **Static look:** the MeshPart's TextureID / ColorMap shows the ad (a placeholder until you animate it).
 * **Self-lit + animated:** `CyberpunkSetup` adds an invisible anchor Part per flat panel with a **SurfaceGui** (`LightInfluence = 0`, Brightness from config) holding an ImageLabel. Curved screens (corner landmarks, modern towers) are made of flat facets; each facet gets its own SurfaceGui showing its slice of the artwork via `ImageRectOffset/ImageRectSize`, so the picture wraps the corner continuously. Anchors are tagged `HEX_Screen` with attributes `Ad`, `Kind`, `Screen`, `Panel`.
@@ -97,53 +97,46 @@ These are your original map's sign atlases (2048 px; Roblox will store them at 1
 
 | Ad texture | Size (px) | Format | Screens using it |
 |---|---|---|---|
-| `AD_AikoLive.png` | 512 × 1024 | T | 5 |
-| `AD_AkaiMotors.png` | 1024 × 512 | W | 25 |
-| `AD_ArashiSec.png` | 512 × 1024 | T | 5 |
-| `AD_BladeEdge.png` | 256 × 1024 | S | 15 |
+| `AD_AikoTour.png` | 512 × 1024 | T | 7 |
+| `AD_AkaiMotors.png` | 1024 × 512 | W | 22 |
+| `AD_Aquarium.png` | 256 × 1024 | S | 2 |
+| `AD_ArashiWatch.png` | 512 × 1024 | T | 7 |
+| `AD_ClubVoid.png` | 256 × 1024 | S | 3 |
 | `AD_CourtKings.png` | 1024 × 1024 | Q | 2 |
-| `AD_Cyber.png` | 256 × 1024 | S | 14 |
-| `AD_DataStream.png` | 1024 × 256 | X | 11 |
-| `AD_DenkiCola.png` | 512 × 1024 | T | 5 |
-| `AD_Hanabi.png` | 1024 × 1024 | Q | 2 |
-| `AD_HexLeague.png` | 1024 × 512 | W | 25 |
-| `AD_HexLeagueTall.png` | 512 × 1024 | T | 5 |
-| `AD_HoloDancer.png` | 256 × 1024 | S | 15 |
-| `AD_HoloKoi.png` | 256 × 1024 | S | 15 |
-| `AD_Karaoke24.png` | 1024 × 1024 | Q | 2 |
-| `AD_KirinDeck.png` | 1024 × 512 | W | 25 |
-| `AD_KitsuneMask.png` | 1024 × 1024 | Q | 1 |
-| `AD_KoiAir.png` | 1024 × 256 | X | 9 |
-| `AD_MatchaPlus.png` | 256 × 1024 | S | 15 |
-| `AD_MegaSale.png` | 1024 × 512 | W | 25 |
-| `AD_MindUpload.png` | 1024 × 512 | W | 25 |
-| `AD_MiraiBank.png` | 1024 × 256 | X | 9 |
-| `AD_NanoMed.png` | 1024 × 256 | X | 10 |
-| `AD_NekoNet.png` | 512 × 1024 | T | 5 |
-| `AD_NeoShibuya.png` | 1024 × 384 |  | 0 |
+| `AD_Cyber.png` | 256 × 1024 | S | 1 |
+| `AD_DenkiCola.png` | 512 × 1024 | T | 7 |
+| `AD_Eterna.png` | 1024 × 512 | W | 21 |
+| `AD_Hanabi.png` | 1024 × 1024 | Q | 3 |
+| `AD_HexLeague.png` | 1024 × 512 | W | 21 |
+| `AD_HexLeague23.png` | 512 × 1024 | T | 6 |
+| `AD_HexNews.png` | 1024 × 256 | X | 13 |
+| `AD_Karaoke.png` | 1024 × 1024 | Q | 2 |
+| `AD_Katana.png` | 256 × 1024 | S | 3 |
+| `AD_Kirin.png` | 1024 × 512 | W | 21 |
+| `AD_KitsuneCafe.png` | 1024 × 1024 | Q | 2 |
+| `AD_KoiAir.png` | 1024 × 256 | X | 13 |
+| `AD_Konbini.png` | 1024 × 1024 | Q | 1 |
+| `AD_Matcha.png` | 256 × 1024 | S | 3 |
+| `AD_MiraiBank.png` | 1024 × 256 | X | 15 |
+| `AD_NeoShibuya.png` | 1024 × 384 | P | 1 |
 | `AD_NeonNoodle.png` | 1024 × 1024 | Q | 1 |
-| `AD_NewsTicker.png` | 1024 × 256 | X | 9 |
-| `AD_NexusAndroids.png` | 512 × 1024 | T | 5 |
-| `AD_NoirParfum.png` | 512 × 1024 | T | 3 |
-| `AD_OkamiArms.png` | 512 × 1024 | T | 5 |
-| `AD_Onigiri24.png` | 1024 × 1024 | Q | 2 |
-| `AD_OrbitalResorts.png` | 1024 × 1024 | Q | 2 |
-| `AD_Pachinko.png` | 512 × 1024 | T | 4 |
-| `AD_PlayHex.png` | 1024 × 512 | W | 25 |
-| `AD_RamenIchiban.png` | 1024 × 256 | X | 10 |
-| `AD_RyuGames.png` | 1024 × 1024 | Q | 2 |
-| `AD_SakuraLink.png` | 1024 × 512 | W | 24 |
-| `AD_ScanMe.png` | 1024 × 1024 | Q | 2 |
+| `AD_Nexus.png` | 512 × 1024 | T | 6 |
+| `AD_NightMarket.png` | 1024 × 512 | W | 21 |
+| `AD_NoirParfum.png` | 512 × 1024 | T | 6 |
+| `AD_Okami.png` | 512 × 1024 | T | 8 |
+| `AD_Orbital.png` | 1024 × 1024 | Q | 2 |
+| `AD_RamenIchiban.png` | 1024 × 256 | X | 15 |
+| `AD_RyuGames.png` | 1024 × 1024 | Q | 1 |
+| `AD_SakuraAir.png` | 1024 × 512 | W | 22 |
 | `AD_ShibuyaKanji.png` | 1024 × 384 | P | 1 |
-| `AD_SushiSpeed.png` | 1024 × 512 | W | 25 |
-| `AD_SynthFM.png` | 1024 × 512 | W | 25 |
-| `AD_TipOff.png` | 1024 × 256 | X | 11 |
+| `AD_SynthWave.png` | 1024 × 512 | W | 21 |
+| `AD_TipOff.png` | 1024 × 256 | X | 14 |
 | `AD_Titan3.png` | 1024 × 384 | P | 2 |
-| `AD_Tokyo2099.png` | 256 × 1024 | S | 16 |
-| `AD_VoltRunner.png` | 1024 × 512 | W | 23 |
-| `AD_YumeOptics.png` | 1024 × 512 | W | 25 |
+| `AD_Tokyo2099.png` | 256 × 1024 | S | 3 |
+| `AD_Volt.png` | 1024 × 512 | W | 21 |
+| `AD_YumeOptics.png` | 1024 × 512 | W | 22 |
 
-Formats: W 2:1 facade / rooftop billboards, X 4:1 banners / tickers, P 8:3 curved corner wraps, T 1:2 tall facade screens, S 1:4 holo strips / blades, Q 1:1 square. All artwork is original (fictional brands) — drawn by `blender/cp2_ads.py`, so you can edit text/colours and regenerate.
+Formats: W 2:1 facade / rooftop billboards, X 4:1 banners / tickers, P 8:3 curved corner wraps, T 1:2 tall facade screens, S 1:4 holo strips / blades, Q 1:1 square. All artwork is original (fictional brands, campaign-style layouts) — drawn by `blender/cp2_ads.py`, so you can edit text/colours and regenerate. It is moderation-safe by design: no QR codes or barcodes, prices, links or calls to action, gambling or weapons.
 
 ## 8. Lights (from `CityData.lights`)
 
@@ -154,7 +147,7 @@ Formats: W 2:1 facade / rooftop billboards, X 4:1 banners / tickers, P 8:3 curve
 
 ## 9. Performance notes
 
-* FBX size is not runtime cost. Runtime totals: 6,199 MeshParts, 565,730 triangles, 10 PBR texture sets + 45 ad images + 2 sign atlases.
+* FBX size is not runtime cost. Runtime totals: 6,517 MeshParts, 807,084 triangles, 10 PBR texture sets + 38 ad images + 2 sign atlases.
 * File B (midground/skyline) is unreachable: the setup turns off its collisions (`CollideFileB = false`). For StreamingEnabled places, set model B's `ModelStreamingMode = Persistent` so the skyline never pops out, and keep `RenderFidelity = Automatic` on its MeshParts.
 * Small details (neon, windows, signs, screens, small props) have CanCollide / CanQuery / CastShadow off.
 * Instanced props share one mesh asset each, so Roblox can batch them.

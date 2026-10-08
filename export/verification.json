@@ -2,14 +2,14 @@
  "files": {
   "A": {
    "path": "export/HEX_Cyberpunk_City_A.fbx",
-   "bytes": 12788300,
-   "MB": 12.79,
+   "bytes": 18009292,
+   "MB": 18.01,
    "under_20MB": true
   },
   "B": {
    "path": "export/HEX_Cyberpunk_City_B.fbx",
-   "bytes": 12959772,
-   "MB": 12.96,
+   "bytes": 14054348,
+   "MB": 14.05,
    "under_20MB": true
   }
  },
@@ -60,19 +60,19 @@
   }
  },
  "triangles": {
-  "A": 317434,
-  "B": 248296
+  "A": 509776,
+  "B": 297308
  },
  "objects": {
-  "A": 3411,
-  "B": 2788
+  "A": 3657,
+  "B": 2860
  },
  "materials": {
-  "AD_AikoLive": {
-   "objects": 5,
-   "tris": 10,
+  "AD_AikoTour": {
+   "objects": 7,
+   "tris": 28,
    "textures": [
-    "AD_AikoLive.png"
+    "AD_AikoTour.png"
    ],
    "files": [
     "A",
@@ -80,8 +80,8 @@
    ]
   },
   "AD_AkaiMotors": {
-   "objects": 25,
-   "tris": 50,
+   "objects": 22,
+   "tris": 44,
    "textures": [
     "AD_AkaiMotors.png"
    ],
@@ -90,26 +90,35 @@
     "B"
    ]
   },
-  "AD_ArashiSec": {
-   "objects": 5,
-   "tris": 10,
+  "AD_Aquarium": {
+   "objects": 2,
+   "tris": 4,
    "textures": [
-    "AD_ArashiSec.png"
+    "AD_Aquarium.png"
+   ],
+   "files": [
+    "A"
+   ]
+  },
+  "AD_ArashiWatch": {
+   "objects": 7,
+   "tris": 14,
+   "textures": [
+    "AD_ArashiWatch.png"
    ],
    "files": [
     "A",
     "B"
    ]
   },
-  "AD_BladeEdge": {
-   "objects": 15,
-   "tris": 30,
+  "AD_ClubVoid": {
+   "objects": 3,
+   "tris": 6,
    "textures": [
-    "AD_BladeEdge.png"
+    "AD_ClubVoid.png"
    ],
    "files": [
-    "A",
-    "B"
+    "A"
    ]
   },
   "AD_CourtKings": {
@@ -123,29 +132,18 @@
    ]
   },
   "AD_Cyber": {
-   "objects": 14,
-   "tris": 28,
+   "objects": 1,
+   "tris": 2,
    "textures": [
     "AD_Cyber.png"
-   ],
-   "files": [
-    "A",
-    "B"
-   ]
-  },
-  "AD_DataStream": {
-   "objects": 11,
-   "tris": 52,
-   "textures": [
-    "AD_DataStream.png"
    ],
    "files": [
     "A"
    ]
   },
   "AD_DenkiCola": {
-   "objects": 5,
-   "tris": 10,
+   "objects": 7,
+   "tris": 14,
    "textures": [
     "AD_DenkiCola.png"
    ],
@@ -154,19 +152,31 @@
     "B"
    ]
   },
+  "AD_Eterna": {
+   "objects": 21,
+   "tris": 42,
+   "textures": [
+    "AD_Eterna.png"
+   ],
+   "files": [
+    "A",
+    "B"
+   ]
+  },
   "AD_Hanabi": {
-   "objects": 2,
-   "tris": 4,
+   "objects": 3,
+   "tris": 6,
    "textures": [
     "AD_Hanabi.png"
    ],
    "files": [
-    "A"
+    "A",
+    "B"
    ]
   },
   "AD_HexLeague": {
-   "objects": 25,
-   "tris": 50,
+   "objects": 21,
+   "tris": 42,
    "textures": [
     "AD_HexLeague.png"
    ],
@@ -175,73 +185,72 @@
     "B"
    ]
   },
-  "AD_HexLeagueTall": {
-   "objects": 5,
-   "tris": 10,
+  "AD_HexLeague23": {
+   "objects": 6,
+   "tris": 12,
    "textures": [
-    "AD_HexLeagueTall.png"
+    "AD_HexLeague23.png"
    ],
    "files": [
     "A",
     "B"
    ]
   },
-  "AD_HoloDancer": {
-   "objects": 15,
-   "tris": 30,
+  "AD_HexNews": {
+   "objects": 13,
+   "tris": 26,
    "textures": [
-    "AD_HoloDancer.png"
-   ],
-   "files": [
-    "A",
-    "B"
-   ]
-  },
-  "AD_HoloKoi": {
-   "objects": 15,
-   "tris": 30,
-   "textures": [
-    "AD_HoloKoi.png"
-   ],
-   "files": [
-    "A",
-    "B"
-   ]
-  },
-  "AD_Karaoke24": {
-   "objects": 2,
-   "tris": 4,
-   "textures": [
-    "AD_Karaoke24.png"
+    "AD_HexNews.png"
    ],
    "files": [
     "A"
    ]
   },
-  "AD_KirinDeck": {
-   "objects": 25,
-   "tris": 50,
+  "AD_Karaoke": {
+   "objects": 2,
+   "tris": 4,
    "textures": [
-    "AD_KirinDeck.png"
+    "AD_Karaoke.png"
    ],
    "files": [
     "A",
     "B"
    ]
   },
-  "AD_KitsuneMask": {
-   "objects": 1,
-   "tris": 2,
+  "AD_Katana": {
+   "objects": 3,
+   "tris": 6,
    "textures": [
-    "AD_KitsuneMask.png"
+    "AD_Katana.png"
    ],
    "files": [
+    "A"
+   ]
+  },
+  "AD_Kirin": {
+   "objects": 21,
+   "tris": 42,
+   "textures": [
+    "AD_Kirin.png"
+   ],
+   "files": [
+    "A",
     "B"
    ]
   },
+  "AD_KitsuneCafe": {
+   "objects": 2,
+   "tris": 4,
+   "textures": [
+    "AD_KitsuneCafe.png"
+   ],
+   "files": [
+    "A"
+   ]
+  },
   "AD_KoiAir": {
-   "objects": 9,
-   "tris": 18,
+   "objects": 13,
+   "tris": 26,
    "textures": [
     "AD_KoiAir.png"
    ],
@@ -249,42 +258,29 @@
     "A"
    ]
   },
-  "AD_MatchaPlus": {
-   "objects": 15,
-   "tris": 30,
+  "AD_Konbini": {
+   "objects": 1,
+   "tris": 2,
    "textures": [
-    "AD_MatchaPlus.png"
+    "AD_Konbini.png"
    ],
    "files": [
-    "A",
-    "B"
+    "A"
    ]
   },
-  "AD_MegaSale": {
-   "objects": 25,
-   "tris": 50,
+  "AD_Matcha": {
+   "objects": 3,
+   "tris": 6,
    "textures": [
-    "AD_MegaSale.png"
+    "AD_Matcha.png"
    ],
    "files": [
-    "A",
-    "B"
-   ]
-  },
-  "AD_MindUpload": {
-   "objects": 25,
-   "tris": 50,
-   "textures": [
-    "AD_MindUpload.png"
-   ],
-   "files": [
-    "A",
-    "B"
+    "A"
    ]
   },
   "AD_MiraiBank": {
-   "objects": 9,
-   "tris": 18,
+   "objects": 15,
+   "tris": 30,
    "textures": [
     "AD_MiraiBank.png"
    ],
@@ -292,25 +288,14 @@
     "A"
    ]
   },
-  "AD_NanoMed": {
-   "objects": 10,
-   "tris": 20,
+  "AD_NeoShibuya": {
+   "objects": 1,
+   "tris": 36,
    "textures": [
-    "AD_NanoMed.png"
+    "AD_NeoShibuya.png"
    ],
    "files": [
     "A"
-   ]
-  },
-  "AD_NekoNet": {
-   "objects": 5,
-   "tris": 10,
-   "textures": [
-    "AD_NekoNet.png"
-   ],
-   "files": [
-    "A",
-    "B"
    ]
   },
   "AD_NeonNoodle": {
@@ -320,24 +305,25 @@
     "AD_NeonNoodle.png"
    ],
    "files": [
-    "B"
-   ]
-  },
-  "AD_NewsTicker": {
-   "objects": 9,
-   "tris": 18,
-   "textures": [
-    "AD_NewsTicker.png"
-   ],
-   "files": [
     "A"
    ]
   },
-  "AD_NexusAndroids": {
-   "objects": 5,
-   "tris": 10,
+  "AD_Nexus": {
+   "objects": 6,
+   "tris": 12,
    "textures": [
-    "AD_NexusAndroids.png"
+    "AD_Nexus.png"
+   ],
+   "files": [
+    "A",
+    "B"
+   ]
+  },
+  "AD_NightMarket": {
+   "objects": 21,
+   "tris": 42,
+   "textures": [
+    "AD_NightMarket.png"
    ],
    "files": [
     "A",
@@ -345,8 +331,8 @@
    ]
   },
   "AD_NoirParfum": {
-   "objects": 3,
-   "tris": 6,
+   "objects": 6,
+   "tris": 12,
    "textures": [
     "AD_NoirParfum.png"
    ],
@@ -355,62 +341,30 @@
     "B"
    ]
   },
-  "AD_OkamiArms": {
-   "objects": 5,
-   "tris": 10,
+  "AD_Okami": {
+   "objects": 8,
+   "tris": 16,
    "textures": [
-    "AD_OkamiArms.png"
+    "AD_Okami.png"
    ],
    "files": [
     "A",
     "B"
    ]
   },
-  "AD_Onigiri24": {
+  "AD_Orbital": {
    "objects": 2,
    "tris": 4,
    "textures": [
-    "AD_Onigiri24.png"
+    "AD_Orbital.png"
    ],
    "files": [
     "A"
    ]
   },
-  "AD_OrbitalResorts": {
-   "objects": 2,
-   "tris": 4,
-   "textures": [
-    "AD_OrbitalResorts.png"
-   ],
-   "files": [
-    "B"
-   ]
-  },
-  "AD_Pachinko": {
-   "objects": 4,
-   "tris": 8,
-   "textures": [
-    "AD_Pachinko.png"
-   ],
-   "files": [
-    "A",
-    "B"
-   ]
-  },
-  "AD_PlayHex": {
-   "objects": 25,
-   "tris": 50,
-   "textures": [
-    "AD_PlayHex.png"
-   ],
-   "files": [
-    "A",
-    "B"
-   ]
-  },
   "AD_RamenIchiban": {
-   "objects": 10,
-   "tris": 20,
+   "objects": 15,
+   "tris": 30,
    "textures": [
     "AD_RamenIchiban.png"
    ],
@@ -419,8 +373,8 @@
    ]
   },
   "AD_RyuGames": {
-   "objects": 2,
-   "tris": 4,
+   "objects": 1,
+   "tris": 2,
    "textures": [
     "AD_RyuGames.png"
    ],
@@ -428,30 +382,20 @@
     "A"
    ]
   },
-  "AD_SakuraLink": {
-   "objects": 24,
-   "tris": 48,
+  "AD_SakuraAir": {
+   "objects": 22,
+   "tris": 44,
    "textures": [
-    "AD_SakuraLink.png"
+    "AD_SakuraAir.png"
    ],
    "files": [
     "A",
     "B"
    ]
   },
-  "AD_ScanMe": {
-   "objects": 2,
-   "tris": 4,
-   "textures": [
-    "AD_ScanMe.png"
-   ],
-   "files": [
-    "A"
-   ]
-  },
   "AD_ShibuyaKanji": {
    "objects": 1,
-   "tris": 36,
+   "tris": 40,
    "textures": [
     "AD_ShibuyaKanji.png"
    ],
@@ -459,22 +403,11 @@
     "A"
    ]
   },
-  "AD_SushiSpeed": {
-   "objects": 25,
-   "tris": 50,
+  "AD_SynthWave": {
+   "objects": 21,
+   "tris": 42,
    "textures": [
-    "AD_SushiSpeed.png"
-   ],
-   "files": [
-    "A",
-    "B"
-   ]
-  },
-  "AD_SynthFM": {
-   "objects": 25,
-   "tris": 50,
-   "textures": [
-    "AD_SynthFM.png"
+    "AD_SynthWave.png"
    ],
    "files": [
     "A",
@@ -482,8 +415,8 @@
    ]
   },
   "AD_TipOff": {
-   "objects": 11,
-   "tris": 22,
+   "objects": 14,
+   "tris": 58,
    "textures": [
     "AD_TipOff.png"
    ],
@@ -493,31 +426,29 @@
   },
   "AD_Titan3": {
    "objects": 2,
-   "tris": 42,
+   "tris": 4,
    "textures": [
     "AD_Titan3.png"
    ],
    "files": [
-    "A",
     "B"
    ]
   },
   "AD_Tokyo2099": {
-   "objects": 16,
-   "tris": 32,
+   "objects": 3,
+   "tris": 6,
    "textures": [
     "AD_Tokyo2099.png"
    ],
    "files": [
-    "A",
-    "B"
+    "A"
    ]
   },
-  "AD_VoltRunner": {
-   "objects": 23,
-   "tris": 46,
+  "AD_Volt": {
+   "objects": 21,
+   "tris": 42,
    "textures": [
-    "AD_VoltRunner.png"
+    "AD_Volt.png"
    ],
    "files": [
     "A",
@@ -525,8 +456,8 @@
    ]
   },
   "AD_YumeOptics": {
-   "objects": 25,
-   "tris": 50,
+   "objects": 22,
+   "tris": 44,
    "textures": [
     "AD_YumeOptics.png"
    ],
@@ -537,7 +468,7 @@
   },
   "CP_ConcreteDark": {
    "objects": 224,
-   "tris": 22652,
+   "tris": 60236,
    "textures": [
     "T_ConcreteDark_Color.png",
     "T_ConcreteDark_Metalness.png",
@@ -550,8 +481,8 @@
    ]
   },
   "CP_GlassCurtain": {
-   "objects": 167,
-   "tris": 4210,
+   "objects": 259,
+   "tris": 27650,
    "textures": [
     "T_GlassCurtain_Color.png",
     "T_GlassCurtain_Metalness.png",
@@ -563,23 +494,9 @@
     "B"
    ]
   },
-  "CP_GlassRibbon": {
-   "objects": 70,
-   "tris": 328,
-   "textures": [
-    "T_GlassRibbon_Color.png",
-    "T_GlassRibbon_Metalness.png",
-    "T_GlassRibbon_Normal.png",
-    "T_GlassRibbon_Roughness.png"
-   ],
-   "files": [
-    "A",
-    "B"
-   ]
-  },
   "CP_Louver": {
-   "objects": 22,
-   "tris": 84,
+   "objects": 19,
+   "tris": 74,
    "textures": [
     "T_Louver_Color.png",
     "T_Louver_Metalness.png",
@@ -591,8 +508,8 @@
    ]
   },
   "CP_Mechanical": {
-   "objects": 1886,
-   "tris": 114802,
+   "objects": 1905,
+   "tris": 115476,
    "textures": [
     "T_Mechanical_Color.png",
     "T_Mechanical_Metalness.png",
@@ -606,15 +523,15 @@
   },
   "CP_NEON_AMB": {
    "objects": 53,
-   "tris": 1208,
+   "tris": 1152,
    "textures": [],
    "files": [
     "A"
    ]
   },
   "CP_NEON_BLU": {
-   "objects": 84,
-   "tris": 9190,
+   "objects": 68,
+   "tris": 7654,
    "textures": [],
    "files": [
     "A",
@@ -622,8 +539,8 @@
    ]
   },
   "CP_NEON_CYN": {
-   "objects": 155,
-   "tris": 21944,
+   "objects": 125,
+   "tris": 17558,
    "textures": [],
    "files": [
     "A",
@@ -631,8 +548,8 @@
    ]
   },
   "CP_NEON_MAG": {
-   "objects": 142,
-   "tris": 15858,
+   "objects": 110,
+   "tris": 11568,
    "textures": [],
    "files": [
     "A",
@@ -640,8 +557,8 @@
    ]
   },
   "CP_NEON_RED": {
-   "objects": 224,
-   "tris": 12224,
+   "objects": 230,
+   "tris": 10422,
    "textures": [],
    "files": [
     "A",
@@ -649,8 +566,8 @@
    ]
   },
   "CP_NEON_VIO": {
-   "objects": 104,
-   "tris": 11272,
+   "objects": 80,
+   "tris": 8552,
    "textures": [],
    "files": [
     "A",
@@ -658,8 +575,8 @@
    ]
   },
   "CP_NEON_WHT": {
-   "objects": 97,
-   "tris": 4836,
+   "objects": 137,
+   "tris": 6560,
    "textures": [],
    "files": [
     "A",
@@ -667,8 +584,8 @@
    ]
   },
   "CP_PanelMetal": {
-   "objects": 324,
-   "tris": 20692,
+   "objects": 339,
+   "tris": 34930,
    "textures": [
     "T_PanelMetal_Color.png",
     "T_PanelMetal_Metalness.png",
@@ -695,8 +612,8 @@
    ]
   },
   "CP_SHOP_LIT": {
-   "objects": 139,
-   "tris": 410,
+   "objects": 135,
+   "tris": 396,
    "textures": [],
    "files": [
     "A"
@@ -704,7 +621,7 @@
   },
   "CP_SignsH": {
    "objects": 105,
-   "tris": 1406,
+   "tris": 1386,
    "textures": [
     "signs_h.png"
    ],
@@ -713,8 +630,8 @@
    ]
   },
   "CP_SignsV": {
-   "objects": 103,
-   "tris": 1020,
+   "objects": 104,
+   "tris": 1026,
    "textures": [
     "signs_v.png"
    ],
@@ -723,8 +640,8 @@
    ]
   },
   "CP_Steel": {
-   "objects": 306,
-   "tris": 156118,
+   "objects": 299,
+   "tris": 244082,
    "textures": [
     "T_Steel_Color.png",
     "T_Steel_Metalness.png",
@@ -737,8 +654,8 @@
    ]
   },
   "CP_TechPanel": {
-   "objects": 149,
-   "tris": 5776,
+   "objects": 182,
+   "tris": 94090,
    "textures": [
     "T_TechPanel_Color.png",
     "T_TechPanel_Metalness.png",
@@ -751,8 +668,8 @@
    ]
   },
   "CP_TowerNight": {
-   "objects": 198,
-   "tris": 17344,
+   "objects": 305,
+   "tris": 18514,
    "textures": [
     "T_TowerNight_Color.png",
     "T_TowerNight_Metalness.png",
@@ -760,12 +677,13 @@
     "T_TowerNight_Roughness.png"
    ],
    "files": [
+    "A",
     "B"
    ]
   },
   "CP_WIN_COL": {
-   "objects": 200,
-   "tris": 35510,
+   "objects": 281,
+   "tris": 37338,
    "textures": [],
    "files": [
     "A",
@@ -773,8 +691,8 @@
    ]
   },
   "CP_WIN_PNK": {
-   "objects": 134,
-   "tris": 10410,
+   "objects": 233,
+   "tris": 9148,
    "textures": [],
    "files": [
     "A",
@@ -782,8 +700,8 @@
    ]
   },
   "CP_WIN_VIO": {
-   "objects": 154,
-   "tris": 13210,
+   "objects": 246,
+   "tris": 12498,
    "textures": [],
    "files": [
     "A",
@@ -791,8 +709,8 @@
    ]
   },
   "CP_WIN_WRM": {
-   "objects": 216,
-   "tris": 50332,
+   "objects": 285,
+   "tris": 52166,
    "textures": [],
    "files": [
     "A",
@@ -820,7 +738,7 @@
    [
     1500.0,
     1500.0,
-    534.0
+    543.1
    ]
   ],
   "B": [

@@ -35,6 +35,7 @@ CAMERAS = {
     "player_practice": ((0, -150, -16 + EYE), (0, -560, 90), 16),
     "player_landmark_north": ((-30, 395, EYE), (-30, 470, 170), 16),
     "player_drum_ne": ((470, 390, EYE), (590, 505, 110), 15),
+    "detail_facade": ((-300, 400, 25), (-330, 470, 75), 26),
     "aerial_overview": ((1500, -2700, 1300), (0, 0, 60), 26),
     "aerial_skyline": ((0, -380, 260), (0, 900, 380), 18),
 }

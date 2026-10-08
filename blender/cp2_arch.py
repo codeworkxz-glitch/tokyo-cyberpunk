@@ -822,7 +822,7 @@ def crown(B, F, x0, y0, x1, y1, z, style=None):
                 break
             box(g, F, x0 + m, y0 + m, top, x1 - m, y1 - m, top + h, "PNL" if k % 2 else "TEC", skip=("bottom",),
                 keys={"top": "ROF"})
-            if B.hero >= 2 and k == 0:
+            if B.hero >= 3 and k == 0:
                 WF, Ln = F.wall((x0 + m, y0 + m), (x1 - m, y0 + m))
                 neon_h(B, WF, 0, Ln, top + h - 0.8, B.neon2, y=-0.2, w=0.35)
             top += h
@@ -840,7 +840,7 @@ def crown(B, F, x0, y0, x1, y1, z, style=None):
             g.face("PNL", [F.w(x1, y1, z), F.w(x0, y1, z), F.w(x0, y1, zb_), F.w(x1, y1, zb_)])
         else:
             g.face("PNL", [F.w(x0, y0, z), F.w(x1, y0, z), F.w(x1, y0, za), F.w(x0, y0, za)])
-        if B.hero >= 1:
+        if B.hero >= 3:
             # neon on the sloped edges
             for xx in (x0 + 0.3, x1 - 0.3):
                 tube(g, F.w(xx, y0, za + 0.3), F.w(xx, y1, zb_ + 0.3), 0.25, B.neon, n=4)
@@ -909,8 +909,17 @@ def sky_screen(B, F, xa, xb, y_front, z0, width, fmt="T", out=6.0):
 
 # =========================================================================== masses
 def mass(B, F, poly, z0, z1, front=None, side=None, back=None, roof="ROF", front_kw=None, side_kw=None,
-         back_kw=None, front_dir=(0, -1), holes=None, skip_edges=()):
-    """Extrude a footprint and dress each wall with a facade style depending on its orientation."""
+         back_kw=None, front_dir=(0, -1), holes=None, skip_edges=(), detail=None):
+    """Extrude a footprint and dress each wall with a facade style depending on its orientation.
+    detail: cap for the built-window detail (2 full, 1 no sills, 0 distant)."""
+    if detail is not None:
+        prev = getattr(B, "detail_cap", 2)
+        B.detail_cap = detail
+        try:
+            return mass(B, F, poly, z0, z1, front, side, back, roof, front_kw, side_kw, back_kw, front_dir, holes,
+                        skip_edges)
+        finally:
+            B.detail_cap = prev
     n = len(poly)
     front = front or w_curtain
     side = side or w_plain
@@ -1060,37 +1069,14 @@ def fg_stack(B, F, xa, xb, D, kind):
                 break
             blade_sign(B, WFf, side_x, z, h, out=r.uniform(3.5, 5.0))
             z += h + 2
-        # floor directory signs
-        if Lf > 12:
+        # floor directory signs (not over a facade screen)
+        if Lf > 12 and not big:
             sx = 1.2 if side_x > Lf / 2 else Lf - 7.2
             k = 0
             while z_body + k * FLOOR + 10 < Hf - 2:
                 if r.random() < 0.7:
                     flat_sign(B, WFf, sx, z_body + k * FLOOR + 8.4, 6.0, 2.4, kind="SGH", glow=k % 2 == 0)
                 k += 1
-    if not big and r.random() < 0.45 and Lf > 14:
-        # vertically stacked small screens
-        sx = r.uniform(1.5, max(1.6, Lf - 10))
-        sw = min(10.0, Lf - 3)
-        z = z_body + 4
-        for _ in range(r.randint(2, 4)):
-            if z + sw / 2 > Hf - 3:
-                break
-            add_screen(B, WFf, sx, z, sx + sw, z + sw / 2, -1.0, kind="stack", fmt="W",
-                       neon=B.neon2 if B.hero >= 2 else None, light=False)
-            z += sw / 2 + 3.5
-    elif not big and r.random() < 0.35 and Lf > 16:
-        cantilever_billboard(B, WFf, 2, Lf - 2, Hf - 30, min(22, (Lf - 4) / 2), out=4.5)
-    # neon edges
-    if B.hero >= 2:
-        neon_v(B, WFf, 0.3, z_body, Hf, B.neon)
-        neon_v(B, WFf, Lf - 0.3, z_body, Hf, B.neon2)
-        neon_h(B, WFf, 0, Lf, Hf + 2.6, B.neon, y=-0.2)
-    elif B.hero == 1:
-        if r.random() < 0.5:
-            neon_h(B, WFf, 0, Lf, Hf + 2.6, B.neon, y=-0.2)
-        else:
-            neon_v(B, WFf, 0.3 if r.random() < 0.5 else Lf - 0.3, z_body, Hf, B.neon)
     # rear tower
     rx0 = xa + r.uniform(0, w * 0.25)
     rx1 = xb - r.uniform(0, w * 0.25)
@@ -1099,12 +1085,7 @@ def fg_stack(B, F, xa, xb, D, kind):
     Hr = Hf + r.choice([0, 24, 36, 48, 60, 84, 108])
     Hr = max(Hr, Hf + 12)
     rstyle = r.choice([w_curtain, w_ribbon, w_louver, w_curtain, w_tech])
-    mass(B, F, [(rx0, Df), (rx1, Df), (rx1, D), (rx0, D)], -1, Hr, front=rstyle, side=side_plain, back=side_plain)
-    if B.hero >= 2 and r.random() < 0.6:
-        WFr, Lr = F.wall((rx0, Df), (rx1, Df))
-        neon_h(B, WFr, 0, Lr, Hr - 1.2, B.neon2, y=-0.2)
-        if r.random() < 0.5:
-            neon_v(B, WFr, 0.3, Hf, Hr, B.neon2)
+    mass(B, F, [(rx0, Df), (rx1, Df), (rx1, D), (rx0, D)], -1, Hr, front=rstyle, side=side_plain, back=side_plain, detail=1)
     if r.random() < 0.4 and Hr - Hf > 30:
         WFr, Lr = F.wall((rx0, Df), (rx1, Df))
         catwalk(B, WFr, 0, Lr, Hf + r.choice([2, 3]) * FLOOR + 1)
@@ -1155,11 +1136,6 @@ def fg_pencil(B, F, xa, xb, D):
     if holes:
         hx0, hz0, hx1, hz1 = holes[1]
         recessed_screen(B, WF1, hx0, hz0, hx1, hz1, depth=1.0)
-    elif r.random() < 0.6:
-        blade_screen(B, WF1, L1 - 0.6, zp + 10, min(40, H - zp - 20), out=5.0)
-    if B.hero >= 2:
-        for s_ in (0.2, L1 - 0.2):
-            neon_v(B, WF1, s_, zp, H, B.neon)
     # crown: stepped top + spike
     cz = H
     box(B.g, F, xa + 1, 1, cz, xb - 1, Df - 1, cz + 6, "PNL", skip=("bottom",))
@@ -1170,7 +1146,7 @@ def fg_pencil(B, F, xa, xb, D):
     # rear block
     Hr = H - r.choice([12, 24, 36, -24])
     mass(B, F, [(xa, Df), (xb, Df), (xb, D), (xa, D)], -1, Hr, front=r.choice([w_ribbon, w_curtain]), side=side_plain,
-         back=side_plain)
+         back=side_plain, detail=1)
     roof_kit(B, F, xa, Df, xb, D, Hr, level=1)
     return H, Hr
 
@@ -1195,17 +1171,6 @@ def fg_modern(B, F, xa, xb, D):
         poly = L.rounded_rect(xa, 0, xb, Df, rad, n=6, corners=corners)
         style = r.choice([w_curtain, w_exo, w_curtain])
         mass(B, F, poly, zp, H, front=style, side=side_plain, back=side_plain, front_kw={})
-        # horizontal light bands every 3 floors around the curve
-        if B.hero >= 2:
-            for k in range(1, int((H - zp) / (3 * FLOOR)) + 1):
-                z = zp + k * 3 * FLOOR
-                n = len(poly)
-                for i in range(n):
-                    a, b = poly[i], poly[(i + 1) % n]
-                    if (b[0] - a[0]) * 0 + (a[1] + b[1]) / 2 > Df * 0.6:
-                        continue
-                    WF, Ln = F.wall(a, b)
-                    neon_h(B, WF, 0, Ln, z, B.neon if k % 2 else B.neon2, y=-0.35, w=0.35)
         # curved wrap screen on the rounded corner
         if B.hero >= 1 and r.random() < 0.7:
             ci = 0 if corners[0] else 1
@@ -1241,8 +1206,6 @@ def fg_modern(B, F, xa, xb, D):
             st = [w_curtain, w_exo, w_tech, w_ribbon][(t + r.randint(0, 3)) % 4]
             mass(B, F, poly, z, z1, front=st, side=side_plain, back=side_plain)
             WF, Ln = F.wall(poly[0], poly[1])
-            if B.hero >= 2:
-                neon_h(B, WF, 0, Ln, z1 + 2.6, B.neon if t % 2 == 0 else B.neon2, y=-0.2)
             # terrace roof of this tier (part in front of next tier)
             nx0 = x0 + r.uniform(0, (x1 - x0) * 0.3)
             nx1 = x1 - r.uniform(0, (x1 - x0) * 0.3)
@@ -1262,7 +1225,7 @@ def fg_modern(B, F, xa, xb, D):
     Hr = top + r.choice([12, 24, 48, 72])
     rx0 = xa + r.uniform(0, w * 0.3)
     mass(B, F, [(rx0, Df), (xb, Df), (xb, D), (rx0, D)], -1, Hr, front=r.choice([w_curtain, w_louver]),
-         side=side_plain, back=side_plain)
+         side=side_plain, back=side_plain, detail=1)
     ztop = crown(B, F, rx0, Df, xb, D, Hr)
     if r.random() < 0.4:
         antenna(B, F, (rx0 + xb) / 2, (Df + D) / 2, ztop, r.uniform(20, 36))
@@ -1352,7 +1315,7 @@ def fg_arcade(B, F, xa, xb, D):
     flat_sign(B, Frame(F.w(xa + (w - sw) / 2, 2, H + 2.4), F.ax, F.ay), 0, 0, sw, sw / 6, y=-0.6, kind="SGH")
     box(g, F, xa + (w - sw) / 2 + 2, 2.2, H, xa + (w + sw) / 2 - 2, 3.0, H + 2.4, "STL")
     Hr = H + r.choice([24, 36, 60])
-    mass(B, F, [(xa, Df), (xb, Df), (xb, D), (xa, D)], -1, Hr, front=w_ribbon, side=side_plain, back=side_plain)
+    mass(B, F, [(xa, Df), (xb, Df), (xb, D), (xa, D)], -1, Hr, front=w_ribbon, side=side_plain, back=side_plain, detail=1)
     roof_kit(B, F, xa, Df, xb, D, Hr, level=1)
     return H, Hr
 
@@ -1382,7 +1345,7 @@ def fg_low(B, F, xa, xb, D):
     roof_kit(B, F, xa, 0, xb, Df, H, level=1)
     Hr = H + r.choice([24, 48, 72, 96])
     mass(B, F, [(xa, Df), (xb, Df), (xb, D), (xa, D)], -1, Hr, front=r.choice([w_curtain, w_ribbon]), side=side_plain,
-         back=side_plain)
+         back=side_plain, detail=1)
     roof_kit(B, F, xa, Df, xb, D, Hr, level=1)
     return H, Hr
 
@@ -1434,10 +1397,6 @@ def fg_landmark(B, F, xa, xb, D):
         WFs, Ls = F.wall(a, b)
         if Ls > 8:
             ribs(B, WFs, 0, Ls, zp + 4, H - 4, spacing=5.5)
-    for ei in (0, 2):
-        a, b = poly[ei], poly[(ei + 1) % len(poly)]
-        WFe, Le = F.wall(a, b)
-        neon_v(B, WFe, Le / 2, zp, H, B.neon)
     ztop = crown(B, F, xa + 1, 0, xb - 1, Df, H, style=r.choice(["stepped", "helipad", "mech"]))
     for (px, py) in ((xa + 6, Df - 8), (xb - 6, Df - 8)):
         cylinder(g, F, px, py, 3.0, ztop, ztop + 22, "MEC", n=12, top="MEC")
@@ -1446,7 +1405,14 @@ def fg_landmark(B, F, xa, xb, D):
     antenna(B, F, (xa + xb) / 2, Df * 0.6, ztop, r.uniform(60, 90), base=4.5, top=0.8)
     # rear block
     Hr = r.choice([180, 210, 240])
-    mass(B, F, [(xa, Df), (xb, Df), (xb, D), (xa, D)], -1, Hr, front=w_ribbon, side=side_plain, back=side_plain)
+    mass(B, F, [(xa, Df), (xb, Df), (xb, D), (xa, D)], -1, Hr, front=w_ribbon, side=side_plain, back=side_plain, detail=1)
     roof_kit(B, F, xa, Df, xb, D, Hr, level=2)
     L.light(F.w((xa + xb) / 2, -20, 60), (255, 60, 200), 60, 2.0, name=f"{B.bid}_spill")
     return H, Hr
+
+
+# v2.1: built windows (reveals, mullions, sills, rooms behind lit glass) replace the v2 facades
+from cp2_facade import (w_punched, w_ribbon, w_curtain, w_louver, w_balcony, w_tech, w_exo,  # noqa: E402,F811
+                        w_plain, cornice)
+STYLES.update({"curtain": w_curtain, "ribbon": w_ribbon, "punched": w_punched, "louver": w_louver,
+               "balcony": w_balcony, "tech": w_tech, "exo": w_exo, "plain": w_plain})

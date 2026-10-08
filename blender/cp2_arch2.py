@@ -294,12 +294,14 @@ def mg_lot(B, F, W, D):
     H = r.choice([156, 172, 196, 220, 244, 268, 292, 316, 340, 376, 412])
     shape = r.choice(["box", "chamfer", "round", "setback", "setback", "cant"])
     face = r.choice(["TWN", "TWN", "GLS", "RIB", "LOU", "TEC"])
+    from cp2_facade import w_curtain as fc_curtain, w_ribbon as fc_ribbon, w_punched as fc_punched
     fstyle = {
-        "TWN": lambda B_, WF, s0, s1, z0, z1, **k: _flat(B_, WF, s0, s1, z0, z1, "TWN", bay=4.0, wz=(1.9, 11.1)),
-        "GLS": lambda B_, WF, s0, s1, z0, z1, **k: _flat(B_, WF, s0, s1, z0, z1, "GLS"),
-        "RIB": lambda B_, WF, s0, s1, z0, z1, **k: _flat(B_, WF, s0, s1, z0, z1, "RIB", bay=4.0, wz=(0.3, 7.4)),
+        "TWN": lambda B_, WF, s0, s1, z0, z1, **k: fc_curtain(B_, WF, s0, s1, z0, z1, fins=False, detail=0),
+        "GLS": lambda B_, WF, s0, s1, z0, z1, **k: fc_curtain(B_, WF, s0, s1, z0, z1, fins=True, detail=0),
+        "RIB": lambda B_, WF, s0, s1, z0, z1, **k: fc_ribbon(B_, WF, s0, s1, z0, z1, detail=0),
         "LOU": lambda B_, WF, s0, s1, z0, z1, **k: _flat(B_, WF, s0, s1, z0, z1, "LOU", lit=False),
-        "TEC": lambda B_, WF, s0, s1, z0, z1, **k: w_tech(B_, WF, s0, s1, z0, z1),
+        "TEC": lambda B_, WF, s0, s1, z0, z1, **k: fc_punched(B_, WF, s0, s1, z0, z1, key="TEC", detail=0,
+                                                                 slab=False),
     }[face]
     sstyle = lambda B_, WF, s0, s1, z0, z1, **k: _flat(B_, WF, s0, s1, z0, z1, "TWN", bay=4.0, wz=(1.9, 11.1), p=0.12)
     if shape == "chamfer":
@@ -310,6 +312,7 @@ def mg_lot(B, F, W, D):
     else:
         poly = [(tx0, ty0), (tx1, ty0), (tx1, ty1), (tx0, ty1)]
     zsplit = H if shape not in ("setback", "cant") else Hb + (H - Hb) * r.uniform(0.5, 0.75)
+    B.detail_cap = 0
     mass(B, F, poly, Hb, zsplit, front=fstyle, side=sstyle, back=sstyle)
     top_poly = poly
     if shape == "setback":
@@ -325,16 +328,11 @@ def mg_lot(B, F, W, D):
         mass(B, F, top_poly, zsplit, H, front=lambda *a, **k: w_tech(*a), side=sstyle, back=sstyle)
     # neon accents
     WF0, L0 = F.wall(top_poly[0], top_poly[1]) if shape not in ("chamfer",) else F.wall(top_poly[1], top_poly[2])
-    if B.hero >= 2:
-        neon_h(B, WF0, 0, L0, H - 1.0, B.neon, y=-0.3, w=0.6)
-        if r.random() < 0.5:
-            neon_v(B, WF0, 0.3, Hb, H, B.neon2, w=0.6)
-            neon_v(B, WF0, L0 - 0.3, Hb, H, B.neon2, w=0.6)
-    elif B.hero == 1 and r.random() < 0.5:
+    if B.hero >= 2 and r.random() < 0.5:
         neon_h(B, WF0, 0, L0, H - 1.0, B.neon, y=-0.3, w=0.6)
     # screens visible over the foreground
     rs = r.random()
-    if rs < 0.5 and L0 > 20 and H > 200:
+    if rs < 0.3 and L0 > 20 and H > 200:
         sw = min(L0 + r.uniform(0, 12), 84)
         sh = sw / 2 if r.random() < 0.5 else min(sw * 2, (H - 170) * 0.85)
         z0 = max(170.0, H - sh - r.uniform(10, 30))
@@ -343,8 +341,6 @@ def mg_lot(B, F, W, D):
                        neon=B.neon if B.hero >= 1 else None)
             for zz in (z0 + sh * 0.25, z0 + sh * 0.75):
                 box(g, WF0, (L0 - sw) / 2 + 2, -1.4, zz - 0.6, (L0 + sw) / 2 - 2, 0, zz + 0.6, "STL")
-    elif rs < 0.62:
-        blade_screen(B, WF0, L0 - 0.6, max(170.0, H * 0.45), min(60, H * 0.3), out=8)
     # roof
     bx = [p[0] for p in top_poly]
     by = [p[1] for p in top_poly]
@@ -420,7 +416,7 @@ def bg_tower(B, F, s, H, near):
     fam = r.choice(["stepped", "oct", "twist", "cylfins", "twin", "cant", "hex", "cluster", "stepped", "slab"])
     every = 2 if near else 3
     p = 0.55 if near else 0.45
-    neon_on = r.random() < (0.35 if near else 0.25)
+    neon_on = r.random() < (0.18 if near else 0.12)
     top = H
     if fam == "stepped":
         tiers = r.randint(3, 5)

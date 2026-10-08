@@ -149,8 +149,9 @@ def main():
     for key, c, use in NEON:
         w(f"| `__{key}` | {c[0]}, {c[1]}, {c[2]} | {by_key[('A', key)]} / {by_key[('B', key)]} | {use} |")
     w("")
-    w("Lighting hierarchy: landmark buildings (4 corner landmarks + 4 mega ad towers) carry full outlines, exoskeleton ribs and the biggest screens; "
-      "about a quarter of the other buildings get two accents, a third one accent, the rest stay dark so the lit ones stand out.")
+    w("Lighting hierarchy: neon sits where it does in real Tokyo — signs, shopfronts, canopies, rooftop billboards — plus "
+      "illuminated ribs and crowns on the 8 landmark towers. Building edges are not outlined. Lit windows follow tenancy "
+      "(whole office floors, individual flats, dark floors) and each lit window shows a room set back behind its frame.")
     w("")
     w("## 6. Signs (texture atlases from the original map)")
     w("")
@@ -185,7 +186,8 @@ def main():
         w(f"| `{f}` | {im.size[0]} × {im.size[1]} | {fmt} | {len(use)} |")
     w("")
     w("Formats: W 2:1 facade / rooftop billboards, X 4:1 banners / tickers, P 8:3 curved corner wraps, T 1:2 tall facade screens, S 1:4 holo strips / blades, Q 1:1 square. "
-      "All artwork is original (fictional brands) — drawn by `blender/cp2_ads.py`, so you can edit text/colours and regenerate.")
+      "All artwork is original (fictional brands, campaign-style layouts) — drawn by `blender/cp2_ads.py`, so you can edit text/colours and regenerate. "
+      "It is moderation-safe by design: no QR codes or barcodes, prices, links or calls to action, gambling or weapons.")
     w("")
     w("## 8. Lights (from `CityData.lights`)")
     w("")
@@ -198,7 +200,7 @@ def main():
     w("")
     w("* FBX size is not runtime cost. Runtime totals: "
       f"{ver['objects']['A'] + ver['objects']['B']:,} MeshParts, {ver['triangles']['A'] + ver['triangles']['B']:,} triangles, "
-      "10 PBR texture sets + 45 ad images + 2 sign atlases.")
+      f"10 PBR texture sets + {len(ad_use) or len([x for x in os.listdir(TEX) if x.startswith('AD_')])} ad images + 2 sign atlases.")
     w("* File B (midground/skyline) is unreachable: the setup turns off its collisions (`CollideFileB = false`). For StreamingEnabled places, set model B's `ModelStreamingMode = Persistent` so the skyline never pops out, and keep `RenderFidelity = Automatic` on its MeshParts.")
     w("* Small details (neon, windows, signs, screens, small props) have CanCollide / CanQuery / CastShadow off.")
     w("* Instanced props share one mesh asset each, so Roblox can batch them.")
