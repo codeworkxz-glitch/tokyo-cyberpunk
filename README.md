@@ -14,7 +14,7 @@ untouched and verified identical to the original.
 |---|---|
 | `export/HEX_Cyberpunk_City_A.fbx` | park (once) + foreground buildings, corner landmarks, storefronts, billboard structures — **12.8 MB** |
 | `export/HEX_Cyberpunk_City_B.fbx` | midground towers, skyline, 12 megatowers — **13.0 MB** |
-| `export/textures/` | all PNG maps: 10 PBR sets (Color / Normal / Roughness / Metalness, 1024²), 45 original ad artworks, the map's 2 sign atlases, Neon swatches |
+| `export/textures/` | all PNG maps (copy them next to the FBX files when importing; the FBX references bare file names): 10 PBR sets (Color / Normal / Roughness / Metalness, 1024²), 45 original ad artworks, the map's 2 sign atlases, Neon swatches |
 | `export/ROBLOX_SETUP_GUIDE.md` | import steps + texture / material assignment guide for Roblox Studio |
 | `export/texture_assignment.csv`, `export/screens.csv` | every MeshPart → material → PNG maps → Roblox setting; every screen → ad texture |
 | `export/roblox/CyberpunkCityV2.rbxmx` | setup + animation scripts and `CityData` (screen panels, lights, alignment) |

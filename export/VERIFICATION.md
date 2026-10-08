@@ -4,8 +4,8 @@ Overall: **PASS** (re-imported both FBX files into a clean Blender scene)
 
 | File | Size | Objects | Triangles | Bounds min | Bounds max |
 |---|---|---|---|---|---|
-| `HEX_Cyberpunk_City_A.fbx` | 12.8 MB (< 20 MB) | 3411 | 317434 | [-1500.0, -1500.0, -62.0] | [1500.0, 1500.0, 534.0] |
-| `HEX_Cyberpunk_City_B.fbx` | 12.97 MB (< 20 MB) | 2788 | 248296 | [-1420.0, -1496.4, -62.0] | [1499.4, 1482.0, 1789.1] |
+| `HEX_Cyberpunk_City_A.fbx` | 12.79 MB (< 20 MB) | 3411 | 317434 | [-1500.0, -1500.0, -62.0] | [1500.0, 1500.0, 534.0] |
+| `HEX_Cyberpunk_City_B.fbx` | 12.96 MB (< 20 MB) | 2788 | 248296 | [-1420.0, -1496.4, -62.0] | [1499.4, 1482.0, 1789.1] |
 
 | Check | Result |
 |---|---|
@@ -17,6 +17,7 @@ Overall: **PASS** (re-imported both FBX files into a clean Blender scene)
 | Meshes without UVs / non-finite UVs | 0 / 0 |
 | Meshes with other than exactly one material | 0 |
 | Referenced texture files missing on disk | 0 |
+| Texture references containing folders (must be bare file names) | 0 |
 
 ## Materials after re-import
 

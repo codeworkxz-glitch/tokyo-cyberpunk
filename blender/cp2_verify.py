@@ -160,7 +160,8 @@ def main():
                 if m.use_nodes:
                     for nd in m.node_tree.nodes:
                         if nd.type == "TEX_IMAGE" and nd.image:
-                            fp = bpy.path.abspath(nd.image.filepath)
+                            # the FBX stores bare file names; the PNGs ship in export/textures
+                            fp = os.path.join(EXPORT, "textures", os.path.basename(bpy.path.abspath(nd.image.filepath)))
                             e["textures"].add(os.path.basename(fp))
                             if not os.path.exists(fp):
                                 tex_missing.add(fp)
@@ -168,6 +169,14 @@ def main():
     rep["checks"]["non_finite_uv"] = bad_uv
     rep["checks"]["objects_with_not_exactly_one_material"] = multi
     rep["checks"]["missing_texture_files"] = sorted(tex_missing)
+    # texture references must be bare file names (no build-machine paths)
+    import re
+    abs_refs = {}
+    for k, p in FILES.items():
+        d = open(p, "rb").read()
+        abs_refs[k] = len(re.findall(rb"(?:/home/|[A-Za-z]:\\\\|textures/)[^\x00]{0,120}?\.png", d))
+    rep["checks"]["texture_paths_with_folders"] = abs_refs
+    ok &= not any(abs_refs.values())
     ok &= not (no_uv or bad_uv or tex_missing or multi)
     rep["triangles"] = dict(tris_total)
     rep["objects"] = {k: len(v) for k, v in objs.items()}
@@ -208,6 +217,7 @@ def main():
           f"| Meshes without UVs / non-finite UVs | {len(c['meshes_without_uv'])} / {len(c['non_finite_uv'])} |",
           f"| Meshes with other than exactly one material | {len(c['objects_with_not_exactly_one_material'])} |",
           f"| Referenced texture files missing on disk | {len(c['missing_texture_files'])} |",
+          f"| Texture references containing folders (must be bare file names) | {sum(c['texture_paths_with_folders'].values())} |",
           "", "## Materials after re-import", "", "| Material | Objects | Triangles | In file | Textures |", "|---|---|---|---|---|"]
     for n, e in rep["materials"].items():
         L.append(f"| `{n}` | {e['objects']} | {e['tris']} | {', '.join(e['files'])} | {', '.join(e['textures'])} |")

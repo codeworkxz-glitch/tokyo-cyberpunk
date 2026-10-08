@@ -428,7 +428,25 @@ def write_data(path):
     log("wrote", path, "screens:", len(L.SCREENS), "lights:", len(L.LIGHTS))
 
 
+def _bare_texture_paths():
+    """Blender's FBX exporter always writes an absolute FileName (the build machine's path),
+    which Roblox Studio then fails to open. Write only the PNG file name in both FileName and
+    RelativeFilename; the PNGs are placed next to the FBX files when importing."""
+    import io_scene_fbx.export_fbx_bin as efb
+    if getattr(efb, "_cp_bare", False):
+        return
+    orig = efb._gen_vid_path
+
+    def bare(img, scene_data):
+        _abs, rel = orig(img, scene_data)
+        name = os.path.basename(rel.replace("\\", "/"))
+        return name, name
+    efb._gen_vid_path = bare
+    efb._cp_bare = True
+
+
 def export_fbx(colls, path):
+    _bare_texture_paths()
     bpy.ops.object.select_all(action="DESELECT")
     objs = []
     for c in colls:
@@ -442,7 +460,7 @@ def export_fbx(colls, path):
         filepath=path, use_selection=True, object_types={"MESH"}, global_scale=1.0, apply_unit_scale=True,
         apply_scale_options="FBX_SCALE_NONE", axis_forward="-Z", axis_up="Y", bake_space_transform=False,
         use_mesh_modifiers=True, mesh_smooth_type="OFF", use_tspace=False, use_custom_props=False,
-        add_leaf_bones=False, bake_anim=False, path_mode="RELATIVE", embed_textures=False, batch_mode="OFF")
+        add_leaf_bones=False, bake_anim=False, path_mode="STRIP", embed_textures=False, batch_mode="OFF")
     tris = sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in objs)
     log(f"exported {os.path.basename(path)}: {len(objs)} objects, {tris} tris, "
         f"{os.path.getsize(path) / 1e6:.2f} MB")

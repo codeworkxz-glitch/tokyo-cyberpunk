@@ -88,7 +88,9 @@ def main():
     w("")
     w("## 2. Import steps")
     w("")
-    w("1. Keep `HEX_Cyberpunk_City_A.fbx`, `HEX_Cyberpunk_City_B.fbx` and the `textures/` folder together (the FBX files reference `textures/<name>.png` relatively).")
+    w("1. Put both FBX files and **all PNGs from `textures/` in the same folder** (the PNGs directly next to the FBX files, not in a subfolder). "
+      "The FBX files reference each texture by bare file name (e.g. `T_GlassCurtain_Color.png`), so Studio looks for them beside the FBX. "
+      "`HEX_Cyberpunk_Import.zip` (release download) is already laid out this way.")
     w("2. **File → Import 3D** → `HEX_Cyberpunk_City_A.fbx`. Use the same import options as for your original map (no rescale; keep the file's scene position if your Studio version offers it; Anchored). "
       "File A already contains the park, so remove the old `HEX_City_00_FULL_CITY` model to avoid a duplicate.")
     w("3. **File → Import 3D** → `HEX_Cyberpunk_City_B.fbx` with the same options.")

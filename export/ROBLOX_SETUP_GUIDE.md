@@ -6,8 +6,8 @@ Everything here is generated from the actual export (`blender/cp2_guide.py`). Pe
 
 | File | Size | Contents |
 |---|---|---|
-| `HEX_Cyberpunk_City_A.fbx` | 12.8 MB | the original basketball park (unchanged, included only here), all foreground buildings around the plaza, the 4 corner landmarks, side-street ad gates / skybridges, their screens and props — 3411 meshes, 317,434 triangles |
-| `HEX_Cyberpunk_City_B.fbx` | 12.97 MB | midground towers, skyline towers, 12 megatowers, their screens and props — 2788 meshes, 248,296 triangles |
+| `HEX_Cyberpunk_City_A.fbx` | 12.79 MB | the original basketball park (unchanged, included only here), all foreground buildings around the plaza, the 4 corner landmarks, side-street ad gates / skybridges, their screens and props — 3411 meshes, 317,434 triangles |
+| `HEX_Cyberpunk_City_B.fbx` | 12.96 MB | midground towers, skyline towers, 12 megatowers, their screens and props — 2788 meshes, 248,296 triangles |
 | `textures/` | 17.0 MB | every PNG the materials use (listed below) |
 | `roblox/CyberpunkCityV2.rbxmx` | | setup / animation scripts + `CityData` (screen panels, lights, alignment) |
 | `../output/HEX_Cyberpunk_City.blend` | | editable Blender project (collections `A_*` = file A, `B_*` = file B) |
@@ -17,7 +17,7 @@ Both FBX files use the **same world origin, units and axes as `HEX_City_00_FULL_
 
 ## 2. Import steps
 
-1. Keep `HEX_Cyberpunk_City_A.fbx`, `HEX_Cyberpunk_City_B.fbx` and the `textures/` folder together (the FBX files reference `textures/<name>.png` relatively).
+1. Put both FBX files and **all PNGs from `textures/` in the same folder** (the PNGs directly next to the FBX files, not in a subfolder). The FBX files reference each texture by bare file name (e.g. `T_GlassCurtain_Color.png`), so Studio looks for them beside the FBX. `HEX_Cyberpunk_Import.zip` (release download) is already laid out this way.
 2. **File → Import 3D** → `HEX_Cyberpunk_City_A.fbx`. Use the same import options as for your original map (no rescale; keep the file's scene position if your Studio version offers it; Anchored). File A already contains the park, so remove the old `HEX_City_00_FULL_CITY` model to avoid a duplicate.
 3. **File → Import 3D** → `HEX_Cyberpunk_City_B.fbx` with the same options.
 4. In the Importer, check that materials show textures. If a texture is missing, upload the PNG from `textures/` (Asset Manager → Bulk Import) and assign it (section 4), or fill the ids into `CyberpunkConfig.SurfaceTextures` and let the setup script apply them.

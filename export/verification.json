@@ -2,14 +2,14 @@
  "files": {
   "A": {
    "path": "export/HEX_Cyberpunk_City_A.fbx",
-   "bytes": 12801820,
-   "MB": 12.8,
+   "bytes": 12788300,
+   "MB": 12.79,
    "under_20MB": true
   },
   "B": {
    "path": "export/HEX_Cyberpunk_City_B.fbx",
-   "bytes": 12971612,
-   "MB": 12.97,
+   "bytes": 12959772,
+   "MB": 12.96,
    "under_20MB": true
   }
  },
@@ -53,7 +53,11 @@
   "meshes_without_uv": [],
   "non_finite_uv": [],
   "objects_with_not_exactly_one_material": [],
-  "missing_texture_files": []
+  "missing_texture_files": [],
+  "texture_paths_with_folders": {
+   "A": 0,
+   "B": 0
+  }
  },
  "triangles": {
   "A": 317434,
