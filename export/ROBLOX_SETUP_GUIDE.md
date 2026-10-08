@@ -8,7 +8,7 @@ Everything here is generated from the actual export (`blender/cp2_guide.py`). Pe
 |---|---|---|
 | `HEX_Cyberpunk_City_A.fbx` | 18.01 MB | the original basketball park (unchanged, included only here), all foreground buildings around the plaza, the 4 corner landmarks, side-street ad gates / skybridges, their screens and props — 3657 meshes, 509,776 triangles |
 | `HEX_Cyberpunk_City_B.fbx` | 14.05 MB | midground towers, skyline towers, 12 megatowers, their screens and props — 2860 meshes, 297,308 triangles |
-| `textures/` | 34.1 MB | every PNG the materials use (listed below) |
+| `textures/` | 12.0 MB | every PNG the materials use (listed below) |
 | `roblox/CyberpunkCityV2.rbxmx` | | setup / animation scripts + `CityData` (screen panels, lights, alignment) |
 | `../output/HEX_Cyberpunk_City.blend` | | editable Blender project (collections `A_*` = file A, `B_*` = file B) |
 | `../output/HEX_City_00_original_backup.blend` | | backup of the untouched original scene |
@@ -92,7 +92,7 @@ These are your original map's sign atlases (2048 px; Roblox will store them at 1
 * **Static look:** the MeshPart's TextureID / ColorMap shows the ad (a placeholder until you animate it).
 * **Self-lit + animated:** `CyberpunkSetup` adds an invisible anchor Part per flat panel with a **SurfaceGui** (`LightInfluence = 0`, Brightness from config) holding an ImageLabel. Curved screens (corner landmarks, modern towers) are made of flat facets; each facet gets its own SurfaceGui showing its slice of the artwork via `ImageRectOffset/ImageRectSize`, so the picture wraps the corner continuously. Anchors are tagged `HEX_Screen` with attributes `Ad`, `Kind`, `Screen`, `Panel`.
 * **Video:** put `["SCR_name"] = "rbxassetid://<video>"` into `CyberpunkConfig.Videos` and the screen gets a looping **VideoFrame** instead (curved screens too, sliced per facet).
-* **Rotating billboards:** screen kinds in `CyberpunkConfig.RotateKinds` cycle between ads of the same aspect ratio (client script). Swap or add images any time — layouts are in the formats below.
+* **Rotating ads:** in Play mode every screen fades to another ad of the same aspect ratio every 6–10 s (`CyberpunkConfig.RotateAll`, `RotateSeconds`, `FadeSeconds`; set `RotateAll = false` to rotate only the kinds in `RotateKinds`). Swap or add images any time — layouts are in the formats below.
 * Nothing depends on Blender shader animation.
 
 | Ad texture | Size (px) | Format | Screens using it |

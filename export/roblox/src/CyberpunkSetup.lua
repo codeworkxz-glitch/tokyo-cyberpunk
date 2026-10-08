@@ -312,7 +312,7 @@ local function makeScreens(T: (Vector3) -> Vector3, R: (Vector3) -> Vector3, k: 
 			anchor:SetAttribute("Screen", name)
 			anchor:SetAttribute("Panel", i)
 			anchor:SetAttribute("Panels", #rec.panels)
-			anchor:SetAttribute("Rotate", Config.RotateKinds[rec.kind] == true)
+			anchor:SetAttribute("Rotate", Config.RotateAll == true or Config.RotateKinds[rec.kind] == true)
 			CollectionService:AddTag(anchor, "HEX_Screen")
 			anchor.Parent = folder
 			made += 1

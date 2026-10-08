@@ -255,8 +255,8 @@ class Poster:
         self.text(name, F_BOLD, size * 0.62, (cx + u * 0.85) / self.W, cy / self.H, col, anchor="lm", track=0.22)
 
     # ------------------------------------------------------------- output
-    def finish(self, grain=4.0):
-        a = self.a + self.rng.normal(0, grain, self.a.shape)
+    def finish(self, grain=0.0):
+        a = self.a + (self.rng.normal(0, grain, self.a.shape) if grain else 0)
         img = Image.fromarray(np.clip(a, 0, 255).astype(np.uint8)).resize((self.W // SS, self.H // SS), Image.LANCZOS)
         b = np.asarray(img).astype(float)
         yy = np.mgrid[0:b.shape[0], 0:b.shape[1]][0]

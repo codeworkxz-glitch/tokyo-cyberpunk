@@ -1,7 +1,7 @@
 -- HEX! Cyberpunk City v2 - client-side screen / neon animation (RunContext = Client).
 -- Works on the SurfaceGui overlays created by CyberpunkSetup (tag "HEX_Screen"):
 --   * rolling scan line + subtle brightness breathing on every screen
---   * billboards of kinds listed in Config.RotateKinds cycle between ads of the same aspect
+--   * screens cycle between ads of the same aspect ratio with a fade (Config.RotateAll / RotateKinds)
 --   * NEON_RED beacons blink, a few neon strips buzz like faulty tubes
 -- Screens farther than AnimateDistance from the camera are left static (cheap).
 
@@ -51,41 +51,68 @@ for _, a in ipairs(CollectionService:GetTagged("HEX_Screen")) do
 end
 CollectionService:GetInstanceAddedSignal("HEX_Screen"):Connect(add)
 
--- rotating billboards: group panels by screen so curved screens change together
-local groups = {}
-for _, s in ipairs(screens) do
-	if s.anchor:GetAttribute("Rotate") and s.ad then
-		local name = s.anchor:GetAttribute("Screen")
-		groups[name] = groups[name] or {}
-		table.insert(groups[name], s)
+-- rotating ads: every screen (panels of a curved screen change together) fades out, swaps to
+-- another ad of the same aspect ratio, and fades back in every RotateSeconds.
+local TweenService = game:GetService("TweenService")
+local fade = TweenInfo.new(Config.FadeSeconds or 0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+
+local function swap(panels)
+	local first = panels[1]
+	local w, h = first.ad.ImageRectSize.X, first.ad.ImageRectSize.Y
+	if h <= 0 then
+		return
+	end
+	local aspect = math.floor((w * #panels) / h * 100 + 0.5) / 100
+	local list = byAspect[aspect]
+	if not list or #list < 2 then
+		return
+	end
+	local pick
+	for _ = 1, 6 do
+		pick = list[math.random(1, #list)]
+		if pick.Value ~= first.ad.Image then
+			break
+		end
+	end
+	if pick.Value == first.ad.Image then
+		return
+	end
+	for _, s in ipairs(panels) do
+		s.baseTransparency = s.baseTransparency or s.ad.ImageTransparency
+		TweenService:Create(s.ad, fade, { ImageTransparency = 1 }):Play()
+	end
+	task.wait(fade.Time)
+	for _, s in ipairs(panels) do
+		local n = #panels
+		local i = s.anchor:GetAttribute("Panel") or 1
+		s.ad.Image = pick.Value
+		s.ad.ImageRectSize = Vector2.new(pick:GetAttribute("W") / n, pick:GetAttribute("H"))
+		s.ad.ImageRectOffset = Vector2.new(pick:GetAttribute("W") * (i - 1) / n, 0)
+		TweenService:Create(s.ad, fade, { ImageTransparency = s.baseTransparency }):Play()
+		s.gui.Brightness = s.base * 1.6 -- small flash as the new ad appears
 	end
 end
+
 task.spawn(function()
+	local nextSwap = {}
 	while true do
-		for _, panels in pairs(groups) do
-			local first = panels[1]
-			local now = os.clock()
-			first.nextSwap = first.nextSwap or now + math.random(Config.RotateSeconds[1], Config.RotateSeconds[2])
-			if now >= first.nextSwap then
-				first.nextSwap = now + math.random(Config.RotateSeconds[1], Config.RotateSeconds[2])
-				local cur = first.ad.Image
-				local w, h = first.ad.ImageRectSize.X, first.ad.ImageRectSize.Y
-				local aspect = math.floor((w * #panels) / h * 100 + 0.5) / 100
-				local list = byAspect[aspect]
-				if list and #list > 1 then
-					local pick = list[math.random(1, #list)]
-					if pick.Value ~= cur then
-						for _, s in ipairs(panels) do
-							s.ad.Image = pick.Value
-							s.ad.ImageRectSize = Vector2.new(pick:GetAttribute("W") / #panels, pick:GetAttribute("H"))
-							s.ad.ImageRectOffset = Vector2.new(pick:GetAttribute("W") * (s.anchor:GetAttribute("Panel") - 1) / #panels, 0)
-							s.gui.Brightness = s.base * 2.2 -- flash on change
-						end
-					end
-				end
+		local groups = {}
+		for _, s in ipairs(screens) do
+			if s.ad and s.anchor.Parent and s.anchor:GetAttribute("Rotate") then
+				local name = s.anchor:GetAttribute("Screen")
+				groups[name] = groups[name] or {}
+				table.insert(groups[name], s)
 			end
 		end
-		task.wait(0.5)
+		local now = os.clock()
+		for name, panels in pairs(groups) do
+			nextSwap[name] = nextSwap[name] or now + math.random() * Config.RotateSeconds[2]
+			if now >= nextSwap[name] then
+				nextSwap[name] = now + Config.RotateSeconds[1] + math.random() * (Config.RotateSeconds[2] - Config.RotateSeconds[1])
+				task.spawn(swap, panels)
+			end
+		end
+		task.wait(0.25)
 	end
 end)
 

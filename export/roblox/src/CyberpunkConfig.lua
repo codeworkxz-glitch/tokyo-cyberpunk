@@ -55,8 +55,10 @@ return {
 	Videos = {},
 	-- Screens whose ad rotates between artworks of the same aspect ratio (needs the ids of
 	-- the other ads: they are collected automatically from all imported screens).
+	RotateAll = true, -- every screen rotates; set false to rotate only the kinds below
 	RotateKinds = { sky = true, rooftop = true, mg_facade = true, skyline = true, mega = true, giant = true },
-	RotateSeconds = { 9, 16 },
+	RotateSeconds = { 6, 10 }, -- each screen shows an ad for 6-10 s (random per screen)
+	FadeSeconds = 0.35,
 
 	-- Lights ------------------------------------------------------------------------------
 	MaxLights = 450,

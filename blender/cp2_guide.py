@@ -174,7 +174,7 @@ def main():
       "Curved screens (corner landmarks, modern towers) are made of flat facets; each facet gets its own SurfaceGui showing its slice of the artwork via `ImageRectOffset/ImageRectSize`, so the picture wraps the corner continuously. "
       "Anchors are tagged `HEX_Screen` with attributes `Ad`, `Kind`, `Screen`, `Panel`.")
     w("* **Video:** put `[\"SCR_name\"] = \"rbxassetid://<video>\"` into `CyberpunkConfig.Videos` and the screen gets a looping **VideoFrame** instead (curved screens too, sliced per facet).")
-    w("* **Rotating billboards:** screen kinds in `CyberpunkConfig.RotateKinds` cycle between ads of the same aspect ratio (client script). Swap or add images any time — layouts are in the formats below.")
+    w("* **Rotating ads:** in Play mode every screen fades to another ad of the same aspect ratio every 6–10 s (`CyberpunkConfig.RotateAll`, `RotateSeconds`, `FadeSeconds`; set `RotateAll = false` to rotate only the kinds in `RotateKinds`). Swap or add images any time — layouts are in the formats below.")
     w("* Nothing depends on Blender shader animation.")
     w("")
     w("| Ad texture | Size (px) | Format | Screens using it |")
