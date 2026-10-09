@@ -1,4 +1,42 @@
-# tokyo-cyberpunk — HEX! Cyberpunk City v2
+# tokyo-cyberpunk — HEX! City v3 (current)
+
+v3 drops the cyberpunk redesign and goes back to the **original map**
+(`assets/HEX_City_00_FULL_CITY.fbx`). Every original object is kept unchanged. Much more
+Shibuya-style detail is added on top, along with game-themed ads that all rotate.
+
+![Side street gate](docs/previews_v3/side_street_gate.jpg)
+
+| | |
+|---|---|
+| `export_v3/HEX_City_v3_A.fbx` | the original map, every object unchanged (verified) — 18.3 MB |
+| `export_v3/HEX_City_v3_B.fbx` | the new detail — 8.7 MB |
+| `export_v3/textures/` | PNGs; copy them next to the FBX files when importing |
+| `export_v3/roblox/HEXCityV3.rbxmx` | setup, animator, config and `CityData` |
+| `export_v3/HOW_TO_IMPORT.txt` | Roblox Studio steps |
+| `export_v3/VERIFICATION.md` | results of the re-import check |
+| `output/HEX_City_v3.blend` | the editable Blender scene |
+
+File B contains:
+- a rotating screen on every original billboard;
+- 35 moderation-safe ads, made with `blender/hex3_ads.py`;
+- 58 rooftop billboards and 4 landmark LED screens;
+- 243 blade signs;
+- 4 gateway arches;
+- Center-gai lamps, string lights, signals and bollards;
+- 96 vending machines, plus AC units and pipes on the side-street walls;
+- rooftop equipment on 219 roofs;
+- glow data for all 733 lit signs of the original map.
+
+To build it:
+
+    /opt/bvenv/bin/python blender/hex3_ads.py
+    /opt/bvenv/bin/python blender/hex3_build.py
+    /opt/bvenv/bin/python blender/hex3_verify.py
+    python3 export_v3/roblox/build_rbxmx.py
+
+---
+
+## Previous version: HEX! Cyberpunk City v2
 
 A full architectural redesign of the city around the HEX! basketball park
 (`assets/HEX_City_00_FULL_CITY.fbx`): futuristic Tokyo / Shibuya megastructures, skyscraper-scale

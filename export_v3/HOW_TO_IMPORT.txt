@@ -1,0 +1,58 @@
+HEX! CITY v3 - your original map, way more detail, every ad rotates
+==================================================================
+
+WHAT'S IN THIS FOLDER
+  HEX_City_v3_A.fbx    your ORIGINAL map (HEX_City_00_FULL_CITY), every object unchanged
+  HEX_City_v3_B.fbx    all the new detail (lines up with A automatically)
+  *.png                textures - keep them in this SAME folder as the two .fbx files
+  HEXCityV3.rbxmx      the scripts (screens, rotating ads, glowing signs, lights, night lighting)
+  VERIFICATION.md      re-import test results
+
+NEW DETAIL (file B)
+  - a screen on every one of the 576 billboards of the original map (1152 faces), all rotating
+  - 35 new ads made for the game: HEX League finals, MVP race, 3v3 court kings, dunk contest,
+    team ads (Storm, Titans, Hawks, Dragons), jerseys, HEX Ball, drinks, sneakers, HEX TV,
+    plus Shibuya city life (ramen, karaoke, konbini, cafe, fireworks, concert, movie ...)
+    -> moderation-safe: no links, no QR codes, no prices, no @handles, no "buy now"
+  - 58 rooftop billboards and 4 big LED screens on the landmark buildings (all rotating)
+  - 243 vertical blade signs on the street facades (glow at night)
+  - gateway arches with lit name signs over all 4 side streets (Center-gai style)
+  - 118 twin-globe street lamps with arch signs and HEX banners, string lights across the
+    side streets, pedestrian signals, 369 kerb bollards
+  - 96 vending machines, AC units and drain pipes on the side-street walls
+  - rooftop plant on 219 roofs: AC units, water tanks, stair huts, antennas with red beacons
+  - glow for all 733 lit signs of the original map
+  Nothing new was placed inside the plaza, the courts or the sunken practice area.
+
+IMPORT (Roblox Studio)
+  1. Extract the zip. Do not move the .png files away from the .fbx files.
+  2. Avatar tab (or Home) > Import 3D > HEX_City_v3_A.fbx > Import.
+     (If your place ALREADY has the original map in it, you can skip this step - the
+      scripts line B up with your existing map.)
+  3. Import 3D > HEX_City_v3_B.fbx > Import. Use the same import settings as for A.
+     Don't worry where Studio drops it.
+  4. Right-click Workspace > Insert from File > HEXCityV3.rbxmx
+  5. View > Command Bar, paste and press Enter:
+        require(workspace.HEXCityV3.HEXCitySetup).run()
+     Output shows e.g. "[HEX] v3: ... screen panels 1214 ... sign glow ... lights 600".
+     It moves file B onto your map, builds the screens and glow, and sets night lighting.
+  6. Play. Every screen changes its ad every 6-10 seconds with a fade.
+
+SETTINGS (workspace.HEXCityV3.HEXCityConfig) - change, then run step 5 again
+  TimeOfDay      "Night" (default), "Dusk", or "Keep" (leave your own Lighting alone)
+  RotateSeconds  how long each ad stays up, default {6, 10}
+  RotateAll      false = screens stay on one ad
+  SignGlow       false = signs are lit by the scene only
+  MaxLights      default 600 (street lamps first). Lower it on weak devices.
+  CollideDetail  file B is non-collidable by default (it's decoration)
+
+IF SOMETHING LOOKS WRONG
+  - Textures missing / red errors on import: the .png files must be in the same folder
+    as the .fbx when you import.
+  - "HEX_ALIGN_B not found": import HEX_City_v3_B.fbx first.
+  - "Plaza_Curb ... not found": the original map (file A) is not in the place.
+  - Screens black: the screen MeshParts lost their image on import; re-import B with the
+    PNGs next to it.
+
+The editable Blender scene (output/HEX_City_v3.blend) and the build scripts (blender/hex3_*.py)
+are in the GitHub repo.
